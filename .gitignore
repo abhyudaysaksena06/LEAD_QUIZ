@@ -1,0 +1,13 @@
+# dependencies / build output
+node_modules/
+dist/
+
+# local secrets — never commit these
+.env
+.env.local
+.env.*.local
+
+# logs and editor noise
+*.log
+.DS_Store
+Thumbs.db
