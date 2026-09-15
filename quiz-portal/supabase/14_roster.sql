@@ -1,9 +1,18 @@
 -- =====================================================================
 -- LEAD Quiz Portal — 14: student roster (allowlist for Google sign-in)
---   Batch 1 -> Round 1 (60)   Batch 2 -> Round 2 (60)   Batch 3 -> Round 3 (46)
---   166 students. Only these Google accounts can sign in; everyone else is
---   refused at login. Name and roll are pre-fill hints only — the student
---   still types their own roll number at registration.
+--   Batch 1 -> Round 1 (60)   Batch 2 -> Round 2 (59)   Batch 3 -> Round 3 (46)
+--   165 unique students. Only these Google accounts can sign in.
+--
+-- Cleaned before import:
+--   * two mistyped addresses corrected (bgarg1_be26@gmail.com,
+--     ssharma15_be26@thapar.edu)
+--   * duplicate entries removed — one row per person
+--   * roll numbers only kept where they are a real 10-digit roll; the
+--     spreadsheet's 9.18E+11 values and rows where a phone number was pasted
+--     into the roll column are left blank. Roll is a pre-fill hint only —
+--     the student types their own at registration and that is what counts.
+--   * phone numbers are not imported at all.
+--
 -- Safe to re-run: existing rows are re-pointed at the right round; a student
 -- who has already registered keeps their registration (claimed_by untouched).
 -- =====================================================================
@@ -17,6 +26,19 @@ begin
   if v1 is null or v2 is null or v3 is null then
     raise exception 'Rounds not found — run 09_rounds.sql first';
   end if;
+
+  -- clear the mistyped addresses if an earlier run of this file loaded them
+  delete from quiz.allowlist
+   where email in ('bgarg1_be26@gmailcom', 'ssharma15_be26@thpar.edu')
+     and claimed_by is null;
+  update quiz.allowlist set email = 'bgarg1_be26@gmail.com'
+   where email = 'bgarg1_be26@gmailcom';
+  update quiz.allowlist set email = 'ssharma15_be26@thapar.edu'
+   where email = 'ssharma15_be26@thpar.edu';
+
+  -- and the duplicate person, if they were never claimed
+  delete from quiz.allowlist
+   where email in ('vvrinda_26@thapar.edu') and claimed_by is null;
 
   insert into quiz.allowlist (email, batch_id, full_name, roll_hint) values
     ('aabhapahuja612@gmail.com', v1, 'Aabha Pahuja', '1026030403'),
@@ -69,7 +91,7 @@ begin
     ('pbhola_be26@gmail.com', v1, 'Piyush Bhola', '1026250029'),
     ('cgambhir_be26@thapar.edu', v1, 'Chahat Gambhir', '1026030521'),
     ('mgoel_be26@thapar.edu', v1, 'Mishthi goel', '1026170333'),
-    ('dgupta_be26@thapar.edu', v1, 'Daksh Gupta', '102060463'),
+    ('dgupta_be26@thapar.edu', v1, 'Daksh Gupta', null),
     ('kharshit_be26@thapar.edu', v1, 'Kumar Harshit', '1026170173'),
     ('amor_be26@thapar.edu', v1, 'Aryan', '1026030781'),
     ('nsingla1_be26@thapar.edu', v1, 'Nandiika Singla', '1026050138'),
@@ -91,7 +113,7 @@ begin
     ('bhav.kanu2000@gmail.com', v2, 'BHAVISHYA KUMAR', '1026060038'),
     ('msekhon_be26@thapar.edu', v2, 'MEHAR KAUR SEKHON', '1026030415'),
     ('gbansal_be26@thapar.edu', v2, 'Gunishka bansal', '1026030878'),
-    ('bgarg1_be26@gmailcom', v2, 'Bhavya Garg', '1026250199'),
+    ('bgarg1_be26@gmail.com', v2, 'Bhavya Garg', '1026250199'),
     ('mmadhavi_be26@thapar.edu', v2, 'Madhavi', '1026170054'),
     ('ssabhaarwal_be26@thapar.edu', v2, 'Sabina Sabharwal', '1026030447'),
     ('mkaur4_be26@thapar.edu', v2, 'Mehraj kaur', '1026250200'),
@@ -117,11 +139,10 @@ begin
     ('dmalhotra_be26@thapar.edu', v2, 'Devish Malhotra', '1026030250'),
     ('dhananjaygarg739@gmail.com', v2, 'Dhananjay Garg', null),
     ('vvrinda_be26@thapar.edu', v2, 'Vrinda', '1026170327'),
-    ('vvrinda_26@thapar.edu', v2, 'Vrinda', '1026170326'),
     ('ijairath_be26@thapar.edu', v2, 'Inayat Jairath', '1026030980'),
     ('rsaini1_be26@thapar.edu', v2, 'Raghav Saini', '1026190065'),
     ('rgahlawat_be26@thapar.edu', v2, 'ROHINESH GAHLAWAT', '1026150119'),
-    ('akohli_be26@thapar.edu', v2, 'Akul Kohli', '102623066'),
+    ('akohli_be26@thapar.edu', v2, 'Akul Kohli', null),
     ('kdhand_be26@thapar.edu', v2, 'Krishi Dhand', '1026190012'),
     ('agarg14_be26@thapar.edu', v2, 'Akshra', '1026170212'),
     ('yyatharth1_26@thapar.edu', v2, 'Yatharth', '1026040104'),
@@ -163,7 +184,7 @@ begin
     ('ksingh1_be26@thapar.edu', v3, 'Keerti Singh', '1026230009'),
     ('vgoel1_be26@thapar.edu', v3, 'Vivan Goel', '1026090004'),
     ('grovertanvi08@gmail.com', v3, 'Tanvi Grover', '1026170520'),
-    ('jhanvinain14@gmail.com', v3, 'Jhanvi', '7015456364'),
+    ('jhanvinain14@gmail.com', v3, 'Jhanvi', null),
     ('sgupta18_be26@thapar.edu', v3, 'Siddhant Gupta', '1026030894'),
     ('aagarwal10_be26@thapar.edu', v3, 'Ankita Agarwal', '1026250087'),
     ('vaibhavi.v109@gmail.com', v3, 'Vaibhavi Verma', '1026250119'),
@@ -181,14 +202,14 @@ begin
     ('bansalkhushi232@gmail.com', v3, 'Khushi Bansal', '1026030452'),
     ('bmittal_be26@thapar.edu', v3, 'Bhavi Mittal', '1026030977'),
     ('ssaxena_be26@thapar.edu', v3, 'Shivangi Saxena', '1026030150'),
-    ('ssharma15_be26@thpar.edu', v3, 'Saksham Sharma', '1026003052'),
+    ('ssharma15_be26@thapar.edu', v3, 'Saksham Sharma', '1026003052'),
     ('rridhi_be26@thapar.edu', v3, 'Ridhi', '1026170265'),
     ('dmittal3_be26@thapar.edu', v3, 'Devangi Mittal', '1026060099'),
     ('lhanda_be26@thapar.edu', v3, 'Lavya Handa', '1026250083')
   on conflict (email) do update
      set batch_id  = excluded.batch_id,
          full_name = coalesce(excluded.full_name, quiz.allowlist.full_name),
-         roll_hint = coalesce(excluded.roll_hint, quiz.allowlist.roll_hint);
+         roll_hint = excluded.roll_hint;
 
   -- a student who registered before their round was known gets placed now.
   -- Anyone an admin has deliberately moved (e.g. to Backup) is left alone.
@@ -199,38 +220,12 @@ begin
 end $$;
 
 select 'roster' as step, b.name as round, count(*) as allowlisted,
-       count(a.claimed_by) as registered
+       count(a.claimed_by) as registered,
+       count(a.roll_hint)  as with_roll_hint
   from quiz.allowlist a join quiz.batches b on b.id = a.batch_id
  group by b.name order by b.name;
 
--- =====================================================================
--- DATA QUALITY — read this
---
--- Two addresses in the sheet cannot receive mail and will NOT be able to
--- sign in with Google. They are allowlisted exactly as written so nothing
--- is lost, but somebody has to confirm the real address with the student.
--- Once confirmed, uncomment the matching line and run it.
---
---   Bhavya Garg   (Round 2)  bgarg1_be26@gmailcom    <- missing the dot
---   Saksham Sharma (Round 3) ssharma15_be26@thpar.edu <- "thpar", not "thapar"
---
--- update quiz.allowlist set email = 'bgarg1_be26@gmail.com'   where email = 'bgarg1_be26@gmailcom';
--- update quiz.allowlist set email = 'ssharma15_be26@thapar.edu' where email = 'ssharma15_be26@thpar.edu';
---
--- Four roll numbers arrived as spreadsheet scientific notation (9.18E+11)
--- and one is a phone number, so they were left blank. Nothing breaks:
--- students type their own roll number at registration; roll_hint is only
--- a pre-fill. The affected students are:
---   Nandita, Uttkarsh Grover (Round 1); Guntas Singh Mahay, Dhananjay Garg (Round 2)
---   Jhanvi (roll recorded as 7015456364, a 10-digit phone number)
---
--- "Vrinda" appears twice in Batch 2 with the same phone number and two
--- different addresses (vvrinda_be26@thapar.edu and vvrinda_26@thapar.edu).
--- Both are allowlisted. If it is one person, remove the wrong one:
---   delete from quiz.allowlist where email = 'vvrinda_26@thapar.edu';
--- =====================================================================
-
--- anything still looking wrong after the corrections above
+-- every address should be a real thapar.edu or gmail.com address; this must return no rows
 select 'check this address' as step, a.email, b.name as round, a.full_name
   from quiz.allowlist a left join quiz.batches b on b.id = a.batch_id
  where a.email !~ '^[^@]+@(thapar\.edu|gmail\.com)$'
