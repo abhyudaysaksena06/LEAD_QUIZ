@@ -370,10 +370,10 @@ begin
   end if;
 
   -- one real-world action often fires 2-3 browser events (blur + hidden + fullscreen exit).
-  -- Only the first counted flag in any 5-second window counts.
+  -- Only the first counted flag in any 3-second window counts.
   v_counted := quiz.is_counted_flag(p_kind) and not exists (
     select 1 from quiz.flags where attempt_id = v_att.id and counted
-       and created_at > now() - interval '5 seconds');
+       and created_at > now() - interval '3 seconds');
 
   insert into quiz.flags (attempt_id, kind, detail, counted)
   values (v_att.id, left(p_kind, 40), left(p_detail, 300), v_counted);
