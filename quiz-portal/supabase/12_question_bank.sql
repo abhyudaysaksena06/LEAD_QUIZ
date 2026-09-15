@@ -19,9 +19,18 @@ exception when duplicate_object then null; end $$;
 -- not partial: ON CONFLICT (ext_code) needs to infer it. Nulls stay unconstrained.
 create unique index if not exists questions_ext_code_uq on quiz.questions (ext_code);
 
--- retire the placeholder bank from 04_seed.sql (keeps anything already answered)
+-- ---------- remove the placeholder bank from 04_seed.sql ----------
+-- Deleted outright, unless a placeholder is still attached to an attempt or an
+-- answer (a rehearsal run) — those are only deactivated, so old papers stay
+-- readable and nothing cascades away underneath them.
+delete from quiz.questions q
+ where q.ext_code is null
+   and q.title like 'Placeholder%'
+   and not exists (select 1 from quiz.answers  a where a.question_id = q.id)
+   and not exists (select 1 from quiz.attempts t where q.id = any (t.question_ids));
+
 update quiz.questions set active = false
- where ext_code is null and (title like 'Placeholder%');
+ where ext_code is null and title like 'Placeholder%';
 
 -- ---------- MCQ ----------
 insert into quiz.questions (kind, section, ext_code, title, body, options, correct_index, marks, active) values

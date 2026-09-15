@@ -14,7 +14,8 @@ cat <<'HDR'
 --   6. the real question bank, 280 MCQ + 32 coding (12)
 --   7. paper template 4/3/3/7 MCQ + 3 coding   (13)
 --   8. Students tab / formalities tracker      (15)
---   9. the 166 recruits allowlisted by round   (14)
+--   9. the 165 recruits allowlisted by round   (14)
+--  10. a pre-flight report — read the STATUS column (16)
 --
 -- Safe to re-run. Existing students, answers and chats are kept.
 -- Re-running RESETS the TEST* accounts so you can rehearse repeatedly.
@@ -43,14 +44,7 @@ begin
   end if;
 end $chk$;
 
-select 'rounds'                as item, count(*)::text as value from quiz.batches
-union all select 'admin + proctor logins', count(*)::text from quiz.admins
-union all select 'questions in bank',      count(*)::text from quiz.questions where active
-union all select 'students allowlisted',    count(*)::text from quiz.allowlist
-union all select 'test students',          count(*)::text from quiz.students where roll_no like 'TEST%'
-union all select 'camera monitoring',      (select require_camera::text from quiz.config where id = 1)
-union all select 'mic required',           (select require_mic::text from quiz.config where id = 1)
-union all select 'minutes per student',    (select duration_minutes::text from quiz.config where id = 1)
-union all select 'round window (minutes)', (select max(window_minutes)::text from quiz.batches);
+-- the pre-flight report is the last thing this file runs: read the STATUS column
 FTR
+cat 16_preflight.sql
 } > SETUP.sql
