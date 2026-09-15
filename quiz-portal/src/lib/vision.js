@@ -21,6 +21,14 @@ export function loadDetector() {
       // mobilenet_v2 (the default) is markedly better at small objects such as a
       // phone than lite_mobilenet_v2. It is a larger download but only fetched once.
       const model = await cocoSsd.load({ base: 'mobilenet_v2' })
+      // Warm-up: the very first inference compiles GPU kernels and can take a second
+      // or two. Do it on a blank canvas now so the first real check is quick.
+      try {
+        const warm = document.createElement('canvas')
+        warm.width = 320; warm.height = 240
+        warm.getContext('2d').fillRect(0, 0, 1, 1)
+        await model.detect(warm)
+      } catch { /* warm-up is best effort */ }
       ready = true; lastError = null
       return model
     })()

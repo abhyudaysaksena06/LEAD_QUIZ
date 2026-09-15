@@ -218,7 +218,7 @@ begin
   perform quiz.expire_detections();
 
   -- students needing attention first: unread chats, open violations, then camera trouble
-  select coalesce(json_agg(x order by (x.unread + x.open_flags) desc,
+  select coalesce(json_agg(x order by (x.unread + x.open_flags + x.pending_camera) desc,
                            (x.status = 'in_progress' and x.camera_ok is false) desc,
                            x.active desc, x.roll_no), '[]'::json)
     into v_rows from (
@@ -237,6 +237,10 @@ begin
              max(created_at) filter (where sender = 'student') as last_student_message_at,
              (array_agg(body order by id desc) filter (where sender = 'student'))[1] as last_student_message
         from quiz.messages group by roll_no
+    ), det as (
+      select roll_no, count(*) as pending_camera,
+             (array_agg(kind order by created_at desc))[1] as last_camera_kind
+        from quiz.detections where status = 'pending' group by roll_no
     )
     select s.roll_no, s.full_name, s.banned,
            b.name as batch_name,
@@ -248,6 +252,7 @@ begin
            msg.last_student_message, msg.last_student_message_at,
            coalesce(fl.open_flags, 0) as open_flags,
            coalesce(fl.flags, '[]'::json) as flags,
+           coalesce(det.pending_camera, 0) as pending_camera, det.last_camera_kind,
            th.assigned_to, coalesce(th.resolved, true) as thread_resolved
       from quiz.students s
       left join quiz.attempts a on a.roll_no = s.roll_no
@@ -255,6 +260,7 @@ begin
       left join quiz.threads  th on th.roll_no = s.roll_no
       left join fl on fl.roll_no = s.roll_no
       left join msg on msg.roll_no = s.roll_no
+      left join det on det.roll_no = s.roll_no
   ) x;
 
   return json_build_object('server_now', now(), 'me', v_admin, 'students', v_rows);

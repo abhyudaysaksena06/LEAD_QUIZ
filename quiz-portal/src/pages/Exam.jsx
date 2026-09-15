@@ -355,10 +355,12 @@ export default function Exam() {
   useEffect(() => {
     if (phase !== 'exam' || !armed || !cam) return
     let stopped = false
+    let running = false          // never let two inferences overlap - that is what janks the UI
     const run = async () => {
-      if (stopped || document.hidden) return
+      if (stopped || running || document.hidden) return
       const v = videoRef.current
       if (!v || !v.videoWidth) return
+      running = true
       try {
         const res = await analyse(v, { detectPhone: exam?.config?.detect_phone !== false })
         if (!visionReady && detectorReady()) setVisionReady(true)
@@ -375,9 +377,10 @@ export default function Exam() {
           p_image_b64: shot?.b64 ?? null, p_mime: shot?.mime ?? 'image/webp',
         })
       } catch { /* monitoring must never interrupt the exam */ }
+      finally { running = false }
     }
     run()
-    const t = setInterval(run, 6000)
+    const t = setInterval(run, 2500)
     return () => { stopped = true; clearInterval(t) }
   }, [phase, armed, cam, token, visionReady, exam?.config?.detect_phone])
 

@@ -14,9 +14,15 @@ const KIND_LABEL = {
 }
 const label = k => KIND_LABEL[k] || k.replace(/_/g, ' ').toLowerCase()
 
+const CAMERA_LABEL = {
+  PHONE_DETECTED: 'phone?',
+  MULTIPLE_PEOPLE: '2+ people',
+  NO_PERSON: 'nobody in frame',
+}
+
 function Row({ s, offset, token, onChanged, onOpen }) {
   const [open, setOpen] = useState(false)
-  const attention = Number(s.unread) + Number(s.open_flags)
+  const attention = Number(s.unread) + Number(s.open_flags) + Number(s.pending_camera || 0)
   const left = s.status === 'in_progress' ? new Date(s.deadline_at) - (Date.now() + offset) : null
 
   const loadChat = useCallback(() => rpc('admin_get_messages', { p_token: token, p_roll: s.roll_no }), [token, s.roll_no])
@@ -42,6 +48,12 @@ function Row({ s, offset, token, onChanged, onOpen }) {
         <td>
           {Number(s.open_flags) > 0 && (
             <span className="badge blocked" style={{ marginRight: 4 }}>⚠ {s.open_flags}</span>
+          )}
+          {Number(s.pending_camera || 0) > 0 && (
+            <span className="badge blocked" style={{ marginRight: 4 }}
+                  title="camera snapshot waiting in Camera review">
+              📷 {CAMERA_LABEL[s.last_camera_kind] || 'review'} ({s.pending_camera})
+            </span>
           )}
           {Number(s.unread) > 0 && <span className="unread">{s.unread} msg</span>}
           {s.status === 'in_progress' && s.camera_ok === false && (
@@ -71,6 +83,12 @@ function Row({ s, offset, token, onChanged, onOpen }) {
                   {Number(s.open_flags) > 0 &&
                     <button className="sm" onClick={() => resolve(null)}>Resolve all</button>}
                 </div>
+                {Number(s.pending_camera || 0) > 0 && (
+                  <p className="small" style={{ color: 'var(--bad)' }}>
+                    {s.pending_camera} camera snapshot{s.pending_camera === 1 ? '' : 's'} waiting —
+                    open the <b>Camera review</b> tab to look and decide.
+                  </p>
+                )}
                 {(!s.flags || s.flags.length === 0) && (
                   <p className="muted small">Nothing outstanding. Resolved items are hidden for every proctor.</p>
                 )}
@@ -123,7 +141,8 @@ export default function StudentLive({ token, onOpen }) {
   }, [load])
 
   const students = data?.students || []
-  const needing = students.filter(s => Number(s.unread) + Number(s.open_flags) > 0
+  const needing = students.filter(s =>
+    Number(s.unread) + Number(s.open_flags) + Number(s.pending_camera || 0) > 0
     || (s.status === 'in_progress' && s.camera_ok === false))
   const live = students.filter(s => s.active)
   const rows = filter === 'attention' ? needing : filter === 'live' ? live : students

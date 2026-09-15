@@ -426,10 +426,10 @@ begin
     return json_build_object('ok', true, 'skipped', 'not_in_progress');
   end if;
 
-  -- one item per student per kind per minute, and never more than 5 waiting
+  -- one item per student per kind per 30s, and never more than 5 waiting
   if exists (select 1 from quiz.detections
               where roll_no = v_roll and kind = p_kind and status = 'pending'
-                and created_at > now() - interval '60 seconds') then
+                and created_at > now() - interval '30 seconds') then
     return json_build_object('ok', true, 'skipped', 'duplicate');
   end if;
   if (select count(*) from quiz.detections where roll_no = v_roll and status = 'pending') >= 5 then
