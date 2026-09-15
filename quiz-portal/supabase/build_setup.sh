@@ -23,7 +23,7 @@ cat <<'HDR'
 -- Afterwards run 11_test_access.sql for your own Google/USER/ADMIN logins.
 -- =====================================================================
 HDR
-for f in 01_schema.sql 02_student_api.sql 03_admin_api.sql 04_seed.sql 08_proctors.sql 09_rounds.sql 10_test_students.sql 12_question_bank.sql 13_paper_template.sql 15_admin_roster.sql 14_roster.sql 17_round_pools.sql; do
+for f in 01_schema.sql 02_student_api.sql 03_admin_api.sql 04_seed.sql 08_proctors.sql 09_rounds.sql 10_test_students.sql 12_question_bank.sql 13_paper_template.sql 15_admin_roster.sql 14_roster.sql 17_round_pools.sql 18_extend_time_fix.sql; do
   printf '\n\n-- ##############################  %s  ##############################\n\n' "$f"; cat "$f"
 done
 cat <<'FTR'
