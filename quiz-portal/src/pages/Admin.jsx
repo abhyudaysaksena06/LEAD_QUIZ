@@ -6,6 +6,7 @@ import Inbox from '../components/admin/Inbox'
 import Batches from '../components/admin/Batches'
 import Submissions from '../components/admin/Submissions'
 import Registrations from '../components/admin/Registrations'
+import Roster from '../components/admin/Roster'
 import StudentLive from '../components/admin/StudentLive'
 import CameraReview from '../components/admin/CameraReview'
 import { fmtLeft, fmtTime, REASON_LABEL, StatusBadge } from '../components/admin/util'
@@ -352,7 +353,15 @@ export default function Admin() {
           {tab === 'submissions' && <Submissions token={token} students={students} onOpen={setOpenRoll} onChanged={refresh} />}
           {tab === 'chat' && <Inbox token={token} students={students} me={data.me} admins={data.admins || []}
                                     onOpenStudent={setOpenRoll} onChanged={refresh} />}
-          {tab === 'students' && <StudentsTab token={token} batches={batches} onChanged={refresh} />}
+          {tab === 'students' && <>
+            <Roster token={token} onOpen={setOpenRoll} />
+            <details style={{ marginTop: 18 }}>
+              <summary className="small muted" style={{ cursor: 'pointer' }}>
+                Add students with a roll number and password (not needed — students sign in with Google)
+              </summary>
+              <StudentsTab token={token} batches={batches} onChanged={refresh} />
+            </details>
+          </>}
           {tab === 'questions' && <QuestionsTab token={token} />}
           {tab === 'settings' && <SettingsTab token={token} config={data.config} onChanged={refresh} />}
         </>}

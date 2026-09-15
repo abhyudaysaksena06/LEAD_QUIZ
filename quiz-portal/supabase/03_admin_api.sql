@@ -917,7 +917,7 @@ begin
          'admin_force_submit_batch','admin_pause_attempt','admin_resume_attempt',
          'admin_ban_student','admin_unban_student',
          'admin_claim_thread','admin_resolve_thread','admin_add_allowlist','admin_list_allowlist',
-         'admin_remove_allowlist','admin_set_allowlist_batch','admin_get_id_document')
+         'admin_remove_allowlist','admin_set_allowlist_batch','admin_get_id_document','admin_roster')
     loop
       execute format('grant execute on function %s to anon, authenticated', f);
     end loop;
