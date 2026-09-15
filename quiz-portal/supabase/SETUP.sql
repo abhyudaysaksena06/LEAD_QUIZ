@@ -149,6 +149,9 @@ create table if not exists quiz.allowlist (
   created_at timestamptz not null default now()
 );
 
+-- serial number from the recruitment sheet, so a row can be matched back to it
+alter table quiz.allowlist add column if not exists serial_no int;
+
 -- ---------- uploaded photo ID ----------
 create table if not exists quiz.id_documents (
   roll_no     text primary key references quiz.students (roll_no) on delete cascade,
@@ -1880,13 +1883,14 @@ declare v_admin text := quiz.admin_from_token(p_token);
 begin
   return coalesce((
     select json_agg(json_build_object(
-      'email', a.email, 'batch_id', a.batch_id,
+      'email', a.email, 'batch_id', a.batch_id, 'serial_no', a.serial_no,
       'batch_name', (select b.name from quiz.batches b where b.id = a.batch_id),
       'full_name', a.full_name, 'roll_hint', a.roll_hint,
       'claimed_by', a.claimed_by, 'created_at', a.created_at,
       'registered_name', (select s.full_name from quiz.students s where s.roll_no = a.claimed_by),
       'has_id', exists (select 1 from quiz.id_documents d where d.roll_no = a.claimed_by))
-      order by a.claimed_by nulls first, a.email)
+      order by (select b.name from quiz.batches b where b.id = a.batch_id) nulls last,
+               a.serial_no nulls last, a.email)
     from quiz.allowlist a), '[]'::json);
 end $$;
 

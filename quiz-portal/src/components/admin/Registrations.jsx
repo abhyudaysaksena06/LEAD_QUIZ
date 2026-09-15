@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { rpc } from '../../lib/api'
 import { fmtTime } from './util'
 
@@ -34,6 +34,8 @@ export default function Registrations({ token, batches, registration, onChanged 
   const [text, setText] = useState('')
   const [batchId, setBatchId] = useState(String(batches[0]?.id ?? ''))
   const [filter, setFilter] = useState('all')
+  const [round, setRound] = useState('all')
+  const [q, setQ] = useState('')
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const [viewing, setViewing] = useState(null)
@@ -75,8 +77,32 @@ export default function Registrations({ token, batches, registration, onChanged 
     catch (e) { setMsg(e.message) }
   }
 
-  const list = (rows || []).filter(r =>
-    filter === 'all' ? true : filter === 'pending' ? !r.claimed_by : Boolean(r.claimed_by))
+  // Search matches name (either the sheet's or the one they typed), roll number,
+  // email, or the serial number from the batch sheet.
+  const list = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    return (rows || []).filter(r => {
+      if (filter === 'pending' && r.claimed_by) return false
+      if (filter === 'done' && !r.claimed_by) return false
+      if (round !== 'all' && String(r.batch_id ?? '') !== round) return false
+      if (!t) return true
+      return [r.registered_name, r.full_name, r.claimed_by, r.roll_hint, r.email,
+              r.serial_no == null ? '' : String(r.serial_no)]
+        .some(v => (v || '').toLowerCase().includes(t))
+    })
+  }, [rows, filter, round, q])
+
+  const perRound = useMemo(() => {
+    const m = new Map()
+    for (const r of rows || []) {
+      const k = r.batch_name || 'Unassigned'
+      const v = m.get(k) || { total: 0, done: 0 }
+      v.total += 1
+      if (r.claimed_by) v.done += 1
+      m.set(k, v)
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [rows])
 
   return (
     <>
@@ -106,26 +132,45 @@ export default function Registrations({ token, batches, registration, onChanged 
         {msg && <p className="small" style={{ marginTop: 8 }}>{msg}</p>}
       </form>
 
+      {perRound.length > 1 && (
+        <p className="small muted">
+          {perRound.map(([name, v]) => `${name}: ${v.done}/${v.total} registered`).join('  ·  ')}
+        </p>
+      )}
+
       <div className="toolbar">
+        <input placeholder="Search name, roll number, email or sheet no"
+               value={q} onChange={e => setQ(e.target.value)} style={{ minWidth: 260 }} />
+        <select value={round} onChange={e => setRound(e.target.value)}>
+          <option value="all">All rounds</option>
+          {batches.map(b => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
+        </select>
         <select value={filter} onChange={e => setFilter(e.target.value)}>
           <option value="all">All</option>
           <option value="pending">Not yet registered</option>
           <option value="done">Registered</option>
         </select>
         <button className="ghost sm" onClick={load}>Refresh</button>
-        <span className="small muted">{list.length} shown</span>
+        {(q || round !== 'all' || filter !== 'all') && (
+          <button className="ghost sm" onClick={() => { setQ(''); setRound('all'); setFilter('all') }}>
+            Clear
+          </button>
+        )}
+        <span className="small muted">{list.length} of {(rows || []).length} shown</span>
       </div>
 
       <div className="table-wrap">
         <table>
           <thead><tr>
+            <th title="serial number from your batch sheet">#</th>
             <th>Email</th><th>Round</th><th>Status</th><th>Name</th><th>Roll no</th><th>ID</th><th></th>
           </tr></thead>
           <tbody>
-            {!rows && <tr><td colSpan={7} className="muted">Loading…</td></tr>}
-            {rows && list.length === 0 && <tr><td colSpan={7} className="muted">Nothing here yet.</td></tr>}
+            {!rows && <tr><td colSpan={8} className="muted">Loading…</td></tr>}
+            {rows && list.length === 0 && <tr><td colSpan={8} className="muted">Nothing matches that.</td></tr>}
             {list.map(r => (
               <tr key={r.email}>
+                <td className="mono small muted">{r.serial_no ?? '—'}</td>
                 <td className="mono small">{r.email}</td>
                 <td>
                   <select value={String(r.batch_id ?? '')} onChange={e => move(r.email, e.target.value)}

@@ -125,6 +125,9 @@ create table if not exists quiz.allowlist (
   created_at timestamptz not null default now()
 );
 
+-- serial number from the recruitment sheet, so a row can be matched back to it
+alter table quiz.allowlist add column if not exists serial_no int;
+
 -- ---------- uploaded photo ID ----------
 create table if not exists quiz.id_documents (
   roll_no     text primary key references quiz.students (roll_no) on delete cascade,
