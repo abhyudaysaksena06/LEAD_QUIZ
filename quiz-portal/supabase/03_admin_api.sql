@@ -303,7 +303,7 @@ begin
         'id', q.id, 'kind', q.kind, 'title', q.title, 'body', q.body, 'marks', q.marks,
         'options', q.options, 'correct_index', q.correct_index,
         'selected_index', a.selected_index, 'code', a.code, 'language', a.language,
-        'coding_marks', a.coding_marks, 'updated_at', a.updated_at,
+        'coding_marks', a.coding_marks, 'remark', a.remark, 'updated_at', a.updated_at,
         'auto_passed', a.auto_passed, 'auto_total', a.auto_total, 'auto_report', a.auto_report,
         'graded_by', a.graded_by,
         -- admins get ALL tests (including hidden) so grading can re-run the code
@@ -580,8 +580,8 @@ begin
       'is_correct', case when q.kind = 'mcq' then (a.selected_index = q.correct_index) end,
       'code', a.code, 'language', a.language,
       'tests_passed', a.auto_passed, 'tests_total', a.auto_total,
-      'awarded', case when q.kind = 'mcq' then (case when a.selected_index = q.correct_index then q.marks else 0 end)
-                      else a.coding_marks end,
+      'awarded', case when q.kind = 'mcq' then (case when a.selected_index = q.correct_index then q.marks else 0 end) end,
+      'remark', case when q.kind = 'coding' then a.remark end,
       'graded_by', a.graded_by)
       order by s.roll_no, q.id)
     from quiz.students s
@@ -917,7 +917,7 @@ begin
          'admin_force_submit_batch','admin_pause_attempt','admin_resume_attempt',
          'admin_ban_student','admin_unban_student',
          'admin_claim_thread','admin_resolve_thread','admin_add_allowlist','admin_list_allowlist',
-         'admin_remove_allowlist','admin_set_allowlist_batch','admin_get_id_document','admin_roster')
+         'admin_remove_allowlist','admin_set_allowlist_batch','admin_get_id_document','admin_roster','admin_remark_coding')
     loop
       execute format('grant execute on function %s to anon, authenticated', f);
     end loop;

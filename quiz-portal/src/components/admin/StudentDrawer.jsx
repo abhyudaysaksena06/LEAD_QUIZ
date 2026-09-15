@@ -231,18 +231,22 @@ export default function StudentDrawer({ token, roll, offset, onClose, onChanged 
                       <div style={{ marginTop: 6 }}>
                         <div className="small muted">Language: {q.language || '—'}</div>
                         <pre className="code-view">{q.code || '(no code)'}</pre>
-                        <div className="row" style={{ marginTop: 6 }}>
-                          <span className="small">Marks</span>
-                          <input type="number" min="0" max={q.marks} step="0.5" style={{ width: 90 }}
-                                 value={marks[q.id] ?? q.coding_marks ?? ''}
-                                 onChange={e => setMarks(m => ({ ...m, [q.id]: e.target.value }))} />
-                          <span className="small muted">/ {q.marks}</span>
-                          <button className="sm" disabled={busy || marks[q.id] === undefined || marks[q.id] === ''}
-                                  onClick={() => act('admin_grade_coding', { p_question_id: q.id, p_marks: Number(marks[q.id]) })}>
-                            Save grade
-                          </button>
+                        <div style={{ marginTop: 6 }}>
+                          <div className="small muted">
+                            Coding carries no marks — leave a remark for the interview panel.
+                          </div>
+                          <div className="row" style={{ marginTop: 4 }}>
+                            <input placeholder="Remark (e.g. clean logic, missed the edge case)"
+                                   style={{ flex: 1 }}
+                                   value={marks[q.id] ?? q.remark ?? ''}
+                                   onChange={e => setMarks(m => ({ ...m, [q.id]: e.target.value }))} />
+                            <button className="sm" disabled={busy || marks[q.id] === undefined}
+                                    onClick={() => act('admin_remark_coding', { p_question_id: q.id, p_remark: marks[q.id] })}>
+                              Save remark
+                            </button>
+                          </div>
                         </div>
-                        {q.graded_by && <div className="small muted">marked by {q.graded_by}</div>}
+                        {q.graded_by && <div className="small muted">remarked by {q.graded_by}</div>}
                       </div>
                     )}
                   </div>

@@ -15,14 +15,15 @@ cat <<'HDR'
 --   7. paper template 4/3/3/7 MCQ + 3 coding   (13)
 --   8. Students tab / formalities tracker      (15)
 --   9. the 165 recruits allowlisted by round   (14)
---  10. a pre-flight report — read the STATUS column (16)
+--  10. round pools, 20-min papers, coding remarks (17)
+--  11. a pre-flight report — read the STATUS column (16)
 --
 -- Safe to re-run. Existing students, answers and chats are kept.
 -- Re-running RESETS the TEST* accounts so you can rehearse repeatedly.
 -- Afterwards run 11_test_access.sql for your own Google/USER/ADMIN logins.
 -- =====================================================================
 HDR
-for f in 01_schema.sql 02_student_api.sql 03_admin_api.sql 04_seed.sql 08_proctors.sql 09_rounds.sql 10_test_students.sql 12_question_bank.sql 13_paper_template.sql 15_admin_roster.sql 14_roster.sql; do
+for f in 01_schema.sql 02_student_api.sql 03_admin_api.sql 04_seed.sql 08_proctors.sql 09_rounds.sql 10_test_students.sql 12_question_bank.sql 13_paper_template.sql 15_admin_roster.sql 14_roster.sql 17_round_pools.sql; do
   printf '\n\n-- ##############################  %s  ##############################\n\n' "$f"; cat "$f"
 done
 cat <<'FTR'

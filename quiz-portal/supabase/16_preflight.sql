@@ -64,35 +64,56 @@ select * from (
                and (select coding_count from c) = 3 then 'OK' else 'CHECK' end,
          (select sec_a_count||' A + '||sec_b_count||' B + '||sec_c_count||' C + '||
                  tech_count||' technical + '||coding_count||' coding' from c)
-  union all select 10, 'students allowlisted',
+  union all select 10, 'questions exclusive to each round',
+         case when (select sec_a_excl+sec_b_excl+sec_c_excl+tech_excl from c) * 2
+                    >= (select sec_a_count+sec_b_count+sec_c_count+tech_count from c)
+              then 'OK' else 'CHECK' end,
+         (select (sec_a_excl+sec_b_excl+sec_c_excl+tech_excl)||' of '||
+                 (sec_a_count+sec_b_count+sec_c_count+tech_count)||
+                 ' MCQ and '||coding_excl||' of '||coding_count||
+                 ' coding come from this round''s own slice' from c)
+  union all select 11, 'every round has its own slice',
+         case when (select count(*) from quiz.batches where pool_no is null) = 0
+              and (select count(*) from quiz.questions where active and round_pool is not null) > 0
+              then 'OK' else 'PROBLEM' end,
+         (select count(*) filter (where round_pool is null)||' shared, '||
+                 count(*) filter (where round_pool is not null)||' round-exclusive'
+            from quiz.questions where active)
+  union all select 12, 'coding is remark-only',
+         case when (select coalesce(sum(marks),0) from quiz.questions where kind='coding' and active) = 0
+              then 'OK' else 'CHECK' end,
+         'MCQ total '||(select coalesce(sum(marks),0)::text from quiz.questions
+                         where kind='mcq' and active limit 1)||
+         ' marks in the bank; a paper is worth '||(select mcq_count::text from c)
+  union all select 13, 'students allowlisted',
          case when r.total >= 165 then 'OK' else 'CHECK' end,
          r.r1 || ' in Round 1, ' || r.r2 || ' in Round 2, ' || r.r3 || ' in Round 3, '
              || r.total || ' total' from r
-  union all select 11, 'all addresses are thapar.edu or gmail.com',
+  union all select 14, 'all addresses are thapar.edu or gmail.com',
          case when r.bad_email = 0 then 'OK' else 'PROBLEM' end,
          r.bad_email || ' look wrong' from r
-  union all select 12, 'demo / test accounts kept',
+  union all select 15, 'demo / test accounts kept',
          case when s.demo_students >= 12 then 'OK' else 'CHECK' end,
          s.demo_students || ' five-digit test students' from s
-  union all select 13, 'admin + proctor logins',
+  union all select 16, 'admin + proctor logins',
          case when (select count(*) from quiz.admins) >= 6 then 'OK' else 'CHECK' end,
          (select count(*)::text from quiz.admins) || ' logins'
-  union all select 14, 'rounds created',
+  union all select 17, 'rounds created',
          case when (select count(*) from quiz.batches) = 4 then 'OK' else 'PROBLEM' end,
          (select string_agg(name || case when is_open then ' (OPEN)' else '' end, ', ' order by name)
             from quiz.batches)
-  union all select 15, 'exam is open for business',
+  union all select 18, 'exam is open for business',
          case when (select exam_open from c) then 'OK' else 'PROBLEM' end,
          'minutes per student: ' || (select duration_minutes::text from c) ||
          ', round window: ' || (select coalesce(max(window_minutes)::text,'—') from quiz.batches)
-  union all select 16, 'camera monitoring',
+  union all select 19, 'camera monitoring',
          case when (select require_camera from c) then 'OK' else 'CHECK' end,
          'mic required: ' || (select require_mic::text from c)
-  union all select 17, 'live attempts right now',
+  union all select 20, 'live attempts right now',
          case when t.live = 0 then 'OK' else 'CHECK' end,
          t.live || ' in progress, ' || t.total || ' attempts on record (reset these before the real run)'
          from t
-  union all select 18, 'auto-submit timer (pg_cron)',
+  union all select 21, 'auto-submit timer (pg_cron)',
          case when to_regclass('cron.job') is null then 'PROBLEM' else 'OK' end,
          case when to_regclass('cron.job') is null
               then 'pg_cron not enabled — enable it in Database > Extensions, then re-run SETUP.sql'
