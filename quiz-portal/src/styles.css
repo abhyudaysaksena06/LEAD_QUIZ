@@ -207,3 +207,11 @@ td.mono { font-family: var(--mono); }
 /* The photo-ID viewer must sit above the student drawer (z-index 70/71),
    otherwise opening an ID from inside the drawer renders it behind. */
 .overlay.above-drawer { z-index: 90; }
+
+/* scheduled round time on the student's waiting screen */
+.round-when { margin: -4px 0 14px; padding: 8px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); display: inline-block; font-size: 14px; }
+
+/* the sub-list of things that count as a violation */
+.rules .sub-rules { margin: 6px 0 0 0; padding-left: 18px; list-style: disc; }
+.rules .sub-rules li { margin: 2px 0; font-size: 13px; color: var(--muted, #667); }

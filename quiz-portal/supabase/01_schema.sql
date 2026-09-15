@@ -64,6 +64,9 @@ create table if not exists quiz.batches (
 alter table quiz.batches add column if not exists window_minutes int not null default 30;
 alter table quiz.batches add column if not exists closes_at timestamptz;
 
+-- the scheduled date and time shown to students while they wait
+alter table quiz.batches add column if not exists starts_at timestamptz;
+
 -- ---------- people ----------
 create table if not exists quiz.students (
   roll_no       text primary key,

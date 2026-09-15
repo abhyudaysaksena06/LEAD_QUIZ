@@ -2,10 +2,34 @@ import { useCallback, useEffect, useState } from 'react'
 import { rpc } from '../../lib/api'
 import { fmtTime } from './util'
 
+const SAVE_NOTE = '\n\nThe snapshot will be downloaded to this computer as evidence.'
+
 const KIND = {
   PHONE_DETECTED: { label: 'Possible phone', colour: 'var(--bad)', weak: true },
   MULTIPLE_PEOPLE: { label: 'More than one person', colour: 'var(--bad)' },
   NO_PERSON: { label: 'Nobody in frame', colour: 'var(--warn)' },
+}
+
+// A flagged snapshot is evidence: the image itself is transient in the database,
+// so save a copy to the proctor's machine at the moment they flag it.
+function saveSnapshot(item, img) {
+  if (!img?.image_b64) return false
+  try {
+    const bin = atob(img.image_b64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    const ext = (img.mime || 'image/webp').split('/')[1] || 'webp'
+    const when = new Date(item.created_at).toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const url = URL.createObjectURL(new Blob([bytes], { type: img.mime || 'image/webp' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `flagged_${item.roll_no}_${item.kind}_${when}.${ext}`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 10000)
+    return true
+  } catch { return false }
 }
 
 function Item({ token, item, onDone }) {
@@ -28,14 +52,18 @@ function Item({ token, item, onDone }) {
       const warn = next >= Number(item.max_flags ?? 3)
         ? `\n\nThis is violation ${next} of ${item.max_flags} — approving will END their test and sign them out.`
         : `\n\nThis becomes violation ${next} of ${item.max_flags}.`
-      if (!window.confirm(`Flag ${item.roll_no} for "${k.label}"?${warn}`)) return
+      if (!window.confirm(`Flag ${item.roll_no} for "${k.label}"?${warn}`
+                          + SAVE_NOTE)) return
     }
     setBusy(true); setErr('')
     try {
+      // download BEFORE deciding: the image is cleared from the database once reviewed
+      const saved = approve ? saveSnapshot(item, img) : false
       const r = await rpc('admin_decide_detection', { p_token: token, p_id: item.id, p_approve: approve })
+      if (approve && !saved) setErr('Flagged, but the snapshot could not be saved to this computer.')
       onDone(approve && r.blocked
-        ? `${item.roll_no} flagged — test ended (${r.flag_count}/${r.max_flags}).`
-        : approve ? `${item.roll_no} flagged (${r.flag_count}/${r.max_flags}).`
+        ? `${item.roll_no} flagged — test ended (${r.flag_count}/${r.max_flags}). Snapshot saved.`
+        : approve ? `${item.roll_no} flagged (${r.flag_count}/${r.max_flags}). Snapshot saved.`
         : `Dismissed — nothing recorded against ${item.roll_no}.`)
     } catch (e) { setErr(e.message); setBusy(false) }
   }
@@ -102,7 +130,8 @@ export default function CameraReview({ token }) {
         or an empty chair, it sends <b>one snapshot here</b> for you to judge. <b>Flag</b> records a
         violation against the student (three ends their test); <b>Dismiss</b> does nothing at all.
         Snapshots are deleted the moment you decide, and anything unreviewed is purged after 30 minutes —
-        no images are ever stored against a student.
+        no images are ever stored against a student. When you DO flag one, the snapshot is
+        downloaded to this computer so there is a permanent record of what you saw.
       </p>
       {err && <div className="error">{err}</div>}
       {msg && <div className="error" style={{ background: 'var(--brand-soft)', color: 'var(--brand-dark)' }}>{msg}</div>}

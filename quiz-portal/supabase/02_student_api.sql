@@ -233,6 +233,7 @@ begin
                                  'consented_at', v_student.consented_at),
     'batch', case when v_batch.id is null then null else json_build_object(
        'id', v_batch.id, 'name', v_batch.name, 'is_open', v_batch.is_open,
+       'starts_at', v_batch.starts_at,
        'duration_minutes', coalesce(v_batch.duration_minutes, v_cfg.duration_minutes)) end,
     'can_start', (v_cfg.exam_open and coalesce(v_batch.is_open, false)),
     'attempt', case when v_att.id is null then null else json_build_object(

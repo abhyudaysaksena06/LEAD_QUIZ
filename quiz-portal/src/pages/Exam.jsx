@@ -42,6 +42,19 @@ function StudentChat({ token, open, onClose }) {
   )
 }
 
+// Round times are announced in IST, so format them in IST no matter what the
+// student's device clock is set to.
+const IST = 'Asia/Kolkata'
+const HELPLINE = '9166220353'
+function roundWhen(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const date = d.toLocaleDateString('en-GB', { timeZone: IST, day: '2-digit', month: '2-digit', year: 'numeric' })
+  const time = d.toLocaleTimeString('en-US', { timeZone: IST, hour: 'numeric', minute: '2-digit', hour12: true })
+  return { date, time }
+}
+
 export default function Exam() {
   const nav = useNavigate()
   // Captured once. The terminated screen deletes the stored session, and that must not
@@ -438,17 +451,45 @@ export default function Exam() {
           Signed in as <b>{roll}</b>{exam?.student?.full_name ? ` · ${exam.student.full_name}` : ''}
           {exam?.batch && <span className="badge" style={{ marginLeft: 8 }}>{exam.batch.name}</span>}
         </p>
+        {exam?.batch && roundWhen(exam.batch.starts_at) && (
+          <p className="round-when">
+            <b>{exam.batch.name}</b> · {roundWhen(exam.batch.starts_at).date}
+            {' · '}<b>{roundWhen(exam.batch.starts_at).time}</b>
+            <span className="muted"> (IST)</span>
+          </p>
+        )}
         <ul className="rules">
           <li><b>{cfg?.mcq_count + cfg?.coding_count} questions</b>: {cfg?.mcq_count} multiple choice
-            {cfg?.coding_count > 0 && <> and {cfg?.coding_count} coding (<b>optional</b> — attempt them if you have time)</>}.</li>
-          <li><b>Your own {exam?.batch?.duration_minutes ?? cfg?.duration_minutes}-minute timer</b> starts when you press Start. It does not pause.</li>
-          <li>The test runs in <b>fullscreen</b>. Leaving fullscreen, switching tabs or opening another application is recorded as a violation.</li>
-          <li><b>{cfg?.max_flags} violations</b> and your test is submitted automatically and you are signed out.</li>
-          <li>Holding <b>Esc</b> exits fullscreen — that counts as a violation.</li>
+            {cfg?.coding_count > 0 && <> and {cfg?.coding_count} coding</>}.</li>
+          <li><b>There is no negative marking.</b> A wrong answer costs you nothing, so never leave a
+            multiple-choice question blank — answer every one.</li>
+          {cfg?.coding_count > 0 && (
+            <li>The <b>{cfg.coding_count} coding questions are optional and carry no marks</b>. They are
+              read by the panel and given written remarks, so attempt them if you have time — they can
+              only help you. Answer in Python, JavaScript, C, C++ or Java; Python and JavaScript run in
+              the editor, the rest are saved for the examiners to read.</li>
+          )}
+          <li><b>Your own {exam?.batch?.duration_minutes ?? cfg?.duration_minutes}-minute timer</b> starts when you press Start.
+            It counts only while you are connected — if your internet or power fails, the clock stops until you are back.
+            It cannot run past the end of your round.</li>
+          <li>The test runs in <b>fullscreen</b>. These count as a violation:
+            <ul className="sub-rules">
+              <li>Leaving fullscreen, including by holding <b>Esc</b></li>
+              <li>Switching to another tab, window or application</li>
+              <li>Minimising the window or clicking away from the test</li>
+              <li>Pressing <b>Print Screen</b> or trying to take a screenshot</li>
+              <li>Pasting anything into the editor from outside the test</li>
+              <li>Opening developer tools</li>
+            </ul>
+          </li>
+          <li><b>{cfg?.max_flags} violations</b> and your test is submitted automatically. Your answers
+            up to that point are kept and marked.</li>
           {cfg?.require_camera && <li><b>Your camera must stay on</b> and is monitored during the test. Keep your face visible, sit alone, and keep your phone out of sight.</li>}
           {cfg?.require_mic && <li><b>Microphone access is required</b> for the duration of the test. Your browser will ask for permission when you press Start.</li>}
           <li>Answers save automatically. Don’t refresh or close the browser.</li>
-          <li>Problem during the test? Use the <b>💬 Help</b> button to message a proctor.</li>
+          <li>Problem during the test? Use the <b>💬 Help</b> button to message a proctor — that is the
+            fastest route and it reaches whoever is free. If your issue is serious and is
+            <b> not resolved on chat</b>, call <b><a href={`tel:+91${HELPLINE}`}>{HELPLINE}</a></b>.</li>
         </ul>
         {!exam?.can_start && (
           <div className="error">
@@ -456,7 +497,9 @@ export default function Exam() {
               ? 'You have not been assigned to a batch yet. Please contact a proctor.'
               : !cfg?.exam_open
                 ? 'The exam is not open yet. Wait for the proctor’s signal.'
-                : `${exam.batch.name} has not been started yet. This page will unlock automatically when a proctor starts your batch.`}
+                : roundWhen(exam.batch.starts_at)
+                  ? `${exam.batch.name} begins at ${roundWhen(exam.batch.starts_at).time} IST on ${roundWhen(exam.batch.starts_at).date}. This page unlocks by itself when a proctor starts your round — keep it open.`
+                  : `${exam.batch.name} has not been started yet. This page will unlock automatically when a proctor starts your batch.`}
           </div>
         )}
         {error && <div className="error">{error}</div>}
@@ -494,7 +537,8 @@ export default function Exam() {
       <h1>Test submitted automatically</h1>
       <p>You reached <b>{flagCount}</b> screen violations, so your test was submitted and you were signed out.</p>
       <p>Your answers were saved and will be graded.</p>
-      <p className="muted">If this happened by mistake, sign in again and use the chat to contact a proctor.</p>
+      <p className="muted">If this happened by mistake, sign in again and use the chat to contact a proctor.
+        If chat does not resolve it, call <b><a href={`tel:+91${HELPLINE}`}>{HELPLINE}</a></b>.</p>
       <button onClick={goLogin}>Sign in again</button>
     </div></div>
   )
@@ -532,6 +576,8 @@ export default function Exam() {
         <p>{END_TEXT.FLAG_LIMIT} Your answers were saved.</p>
         <p className="muted">You are still signed in. If you believe this was a mistake, message a proctor below —
           if they restore your test, this page continues by itself with the time you had left.</p>
+        <p className="small">If this is urgent and chat does not resolve it, call <b>
+          <a href={`tel:+91${HELPLINE}`}>{HELPLINE}</a></b>.</p>
         <div style={{ display: 'grid', gridTemplateRows: '260px auto', border: '1px solid var(--line)', borderRadius: 8, marginTop: 10 }}>
           <ChatBox me="student" load={() => rpc('student_get_messages', { p_token: token })}
                    send={body => rpc('student_send_message', { p_token: token, p_body: body })} />
