@@ -11,7 +11,7 @@ export function IdViewer({ token, roll, onClose }) {
       .catch(e => setErr(e.message))
   }, [token, roll])
   return (
-    <div className="overlay" onClick={onClose}>
+    <div className="overlay above-drawer" onClick={onClose}>
       <div className="card" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
         <div className="row">
           <b className="mono">{roll}</b><span className="spacer" />

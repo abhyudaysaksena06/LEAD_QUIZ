@@ -13,6 +13,7 @@ begin
   with r as (
     select a.email,
            a.batch_id,
+           a.serial_no,
            b.name                                    as round_name,
            a.full_name                               as listed_name,
            a.roll_hint,
@@ -38,6 +39,7 @@ begin
   )
   select json_agg(json_build_object(
            'email', email, 'round_name', round_name, 'batch_id', batch_id,
+           'serial_no', serial_no,
            'listed_name', listed_name, 'roll_hint', roll_hint,
            'roll_no', roll_no, 'full_name', given_name,
            'registered', registered, 'has_id', has_id, 'complete', complete,
@@ -45,7 +47,7 @@ begin
            'consented', consented_at is not null,
            'last_seen_at', last_seen_at,
            'attempt_status', attempt_status)
-           order by round_name nulls last, complete, email),
+           order by round_name nulls last, serial_no nulls last, email),
          json_build_object(
            'total',      count(*),
            'registered', count(*) filter (where registered),

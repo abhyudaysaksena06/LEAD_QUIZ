@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { rpc } from '../../lib/api'
 import { fmtTime } from './util'
+import { IdViewer } from './Registrations'
 
 // What "all formalities done" means: the student signed in with Google, claimed
 // their allowlist entry (roll number), typed their full name, and uploaded a photo ID.
@@ -30,6 +31,7 @@ export default function Roster({ token, onOpen }) {
   const [filter, setFilter] = useState('all')
   const [round, setRound] = useState('all')
   const [q, setQ] = useState('')
+  const [viewing, setViewing] = useState(null)
 
   const load = useCallback(async () => {
     try { setData(await rpc('admin_roster', { p_token: token })); setErr('') }
@@ -54,17 +56,17 @@ export default function Roster({ token, onOpen }) {
     if (filter === 'notsignedin' && s.registered) return false
     if (filter === 'noid' && (s.has_id || !s.registered)) return false
     const t = q.trim().toLowerCase()
-    if (t && ![s.email, s.listed_name, s.full_name, s.roll_no]
+    if (t && ![s.email, s.listed_name, s.full_name, s.roll_no, String(s.serial_no ?? '')]
               .some(v => (v || '').toLowerCase().includes(t))) return false
     return true
   }), [students, filter, round, q])
 
   function exportCsv() {
-    const head = ['email', 'round', 'listed_name', 'entered_name', 'roll_no',
+    const head = ['sheet_no', 'email', 'round', 'listed_name', 'entered_name', 'roll_no',
                   'signed_in', 'photo_id', 'all_formalities', 'attempt']
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`
     const csv = [head.join(',')].concat(rows.map(s => [
-      s.email, s.round_name || '', s.listed_name || '', s.full_name || '', s.roll_no || '',
+      s.serial_no ?? '', s.email, s.round_name || '', s.listed_name || '', s.full_name || '', s.roll_no || '',
       s.registered ? 'yes' : 'no', s.has_id ? 'yes' : 'no', s.complete ? 'yes' : 'no',
       s.attempt_status || '',
     ].map(esc).join(','))).join('\n')
@@ -121,16 +123,18 @@ export default function Roster({ token, onOpen }) {
       <div className="table-wrap">
         <table>
           <thead><tr>
+            <th title="serial number from your batch sheet">#</th>
             <th>Name</th><th>Email</th><th>Round</th><th>Roll no</th>
             <th>Formalities</th><th>Attempt</th><th></th>
           </tr></thead>
           <tbody>
-            {!data && <tr><td colSpan={7} className="muted">Loading…</td></tr>}
+            {!data && <tr><td colSpan={8} className="muted">Loading…</td></tr>}
             {data && rows.length === 0 && (
-              <tr><td colSpan={7} className="muted">Nobody matches that.</td></tr>
+              <tr><td colSpan={8} className="muted">Nobody matches that.</td></tr>
             )}
             {rows.map(s => (
               <tr key={s.email} style={s.complete ? undefined : { background: 'var(--warn-soft)' }}>
+                <td className="mono small muted">{s.serial_no ?? '—'}</td>
                 <td>
                   {s.full_name || s.listed_name || <span className="muted">—</span>}
                   {s.full_name && s.listed_name && s.full_name.trim().toLowerCase() !== s.listed_name.trim().toLowerCase() && (
@@ -145,16 +149,23 @@ export default function Roster({ token, onOpen }) {
                 </td>
                 <td><Steps s={s} /></td>
                 <td className="small">{s.attempt_status || <span className="muted">not started</span>}</td>
-                <td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {s.has_id && (
+                    <button className="sm ghost" onClick={() => setViewing(s.roll_no)}>Photo ID</button>
+                  )}
                   {s.roll_no
-                    ? <button className="sm ghost" onClick={() => onOpen(s.roll_no)}>Open ›</button>
-                    : <span className="muted small" title={s.last_seen_at ? `last seen ${fmtTime(s.last_seen_at)}` : ''}>—</span>}
+                    ? <button className="sm ghost" style={{ marginLeft: 4 }}
+                              onClick={() => onOpen(s.roll_no)}>Open ›</button>
+                    : !s.has_id && <span className="muted small"
+                        title={s.last_seen_at ? `last seen ${fmtTime(s.last_seen_at)}` : ''}>—</span>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {viewing && <IdViewer token={token} roll={viewing} onClose={() => setViewing(null)} />}
     </>
   )
 }

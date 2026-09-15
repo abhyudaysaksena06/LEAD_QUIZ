@@ -203,3 +203,7 @@ td.mono { font-family: var(--mono); }
   .palette { border-right: 0; border-bottom: 1px solid var(--line); }
   .drawer-body, .inbox { grid-template-columns: 1fr; }
 }
+
+/* The photo-ID viewer must sit above the student drawer (z-index 70/71),
+   otherwise opening an ID from inside the drawer renders it behind. */
+.overlay.above-drawer { z-index: 90; }
