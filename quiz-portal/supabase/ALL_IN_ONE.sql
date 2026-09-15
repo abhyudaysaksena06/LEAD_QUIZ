@@ -247,6 +247,11 @@ create table if not exists quiz.attempts (
 
 -- paused = clock frozen by a proctor; banned = disqualified
 alter table quiz.attempts add column if not exists paused_at timestamptz;
+
+-- camera health, reported on every heartbeat, so proctors can see a camera that has
+-- been switched off, denied, or whose detector failed to load
+alter table quiz.attempts add column if not exists camera_ok boolean;
+alter table quiz.attempts add column if not exists camera_note text;
 alter table quiz.attempts drop constraint if exists attempts_status_check;
 alter table quiz.attempts add constraint attempts_status_check
   check (status in ('in_progress', 'submitted', 'blocked', 'paused', 'banned'));
@@ -984,7 +989,10 @@ end $$;
 
 -- ---------- lightweight poll: timer sync, status changes, unread chat ----------
 drop function if exists public.student_heartbeat(uuid);
-create or replace function public.student_heartbeat(p_token uuid, p_device text default null)
+drop function if exists public.student_heartbeat(uuid, text);
+create or replace function public.student_heartbeat(p_token uuid, p_device text default null,
+                                                    p_camera_ok boolean default null,
+                                                    p_camera_note text default null)
 returns json language plpgsql security definer set search_path = quiz, public as $$
 declare v_roll text := quiz.student_from_token(p_token); v_att quiz.attempts; v_unread int;
         v_device text;
@@ -1010,6 +1018,11 @@ begin
     perform quiz.expire_if_needed(v_att.id);
     select * into v_att from quiz.attempts where id = v_att.id;
   end if;
+  if v_att.id is not null and p_camera_ok is not null then
+    update quiz.attempts set camera_ok = p_camera_ok, camera_note = left(p_camera_note, 120)
+     where id = v_att.id;
+  end if;
+
   select count(*) into v_unread from quiz.messages
    where roll_no = v_roll and sender = 'admin' and not read_by_student;
   return json_build_object('server_now', now(), 'status', v_att.status,
@@ -1263,7 +1276,10 @@ begin
   perform quiz.rebalance_threads();
   perform quiz.expire_detections();
 
-  select coalesce(json_agg(x order by (x.unread + x.open_flags) desc, x.active desc, x.roll_no), '[]'::json)
+  -- students needing attention first: unread chats, open violations, then camera trouble
+  select coalesce(json_agg(x order by (x.unread + x.open_flags) desc,
+                           (x.status = 'in_progress' and x.camera_ok is false) desc,
+                           x.active desc, x.roll_no), '[]'::json)
     into v_rows from (
     with fl as (
       select at.roll_no,
@@ -1284,7 +1300,7 @@ begin
     select s.roll_no, s.full_name, s.banned,
            b.name as batch_name,
            coalesce(a.status, 'not_started') as status,
-           a.deadline_at, a.flag_count, a.submitted_at,
+           a.deadline_at, a.flag_count, a.submitted_at, a.camera_ok, a.camera_note,
            coalesce(s.last_seen_at > now() - interval '30 seconds', false) as active,
            s.last_seen_at,
            coalesce(msg.unread, 0) as unread,

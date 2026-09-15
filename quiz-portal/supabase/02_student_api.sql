@@ -458,7 +458,10 @@ end $$;
 
 -- ---------- lightweight poll: timer sync, status changes, unread chat ----------
 drop function if exists public.student_heartbeat(uuid);
-create or replace function public.student_heartbeat(p_token uuid, p_device text default null)
+drop function if exists public.student_heartbeat(uuid, text);
+create or replace function public.student_heartbeat(p_token uuid, p_device text default null,
+                                                    p_camera_ok boolean default null,
+                                                    p_camera_note text default null)
 returns json language plpgsql security definer set search_path = quiz, public as $$
 declare v_roll text := quiz.student_from_token(p_token); v_att quiz.attempts; v_unread int;
         v_device text;
@@ -484,6 +487,11 @@ begin
     perform quiz.expire_if_needed(v_att.id);
     select * into v_att from quiz.attempts where id = v_att.id;
   end if;
+  if v_att.id is not null and p_camera_ok is not null then
+    update quiz.attempts set camera_ok = p_camera_ok, camera_note = left(p_camera_note, 120)
+     where id = v_att.id;
+  end if;
+
   select count(*) into v_unread from quiz.messages
    where roll_no = v_roll and sender = 'admin' and not read_by_student;
   return json_build_object('server_now', now(), 'status', v_att.status,

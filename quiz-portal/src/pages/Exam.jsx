@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { rpc, store } from '../lib/api'
 import useProctor, { enterFullscreen, releaseScreen } from '../lib/useProctor'
 import { requestMic, releaseMic } from '../lib/mic'
-import { requestCamera, releaseCamera, cameraStream, captureFrame } from '../lib/camera'
-import { analyse, classify, loadDetector } from '../lib/vision'
+import { requestCamera, releaseCamera, cameraStream, cameraLive, captureFrame } from '../lib/camera'
+import { analyse, classify, loadDetector, detectorReady, detectorError } from '../lib/vision'
 import { deviceId } from '../lib/device'
 import CodeWorkspace from '../components/CodeWorkspace'
 import ChatBox from '../components/ChatBox'
@@ -62,6 +62,7 @@ export default function Exam() {
   const [armed, setArmed] = useState(false)
   const [mic, setMic] = useState(false)
   const [cam, setCam] = useState(false)
+  const [visionReady, setVisionReady] = useState(false)
   const videoRef = useRef(null)
   const lastSent = useRef({})
   const streak = useRef({ kind: null, n: 0 })
@@ -229,7 +230,11 @@ export default function Exam() {
       }
     }
     if (exam?.config?.require_camera) {
-      try { await requestCamera(); setCam(true); loadDetector().catch(() => {}) }
+      try {
+        await requestCamera(); setCam(true)
+        // load in the background; failure is reported to proctors, never silent
+        loadDetector().then(() => setVisionReady(true)).catch(() => setVisionReady(false))
+      }
       catch {
         setCam(false)
         setError('Camera access is required for this test. Allow it in your browser and try again.')
@@ -302,7 +307,15 @@ export default function Exam() {
     if (!['exam', 'blocked', 'paused'].includes(phase)) return
     const tick = async () => {
       try {
-        const h = await rpc('student_heartbeat', { p_token: token, p_device: deviceId() })
+        const needCam = Boolean(exam?.config?.require_camera)
+        const camOk = needCam ? (cameraLive() && detectorReady()) : null
+        const camNote = !needCam ? null
+          : !cameraLive() ? 'camera off or blocked'
+          : !detectorReady() ? (detectorError() ? 'detector failed to load' : 'detector still loading')
+          : null
+        const h = await rpc('student_heartbeat', {
+          p_token: token, p_device: deviceId(), p_camera_ok: camOk, p_camera_note: camNote,
+        })
         setOffset(new Date(h.server_now).getTime() - Date.now())
         setUnread(h.unread)
         if (h.deadline_at) setDeadline(new Date(h.deadline_at).getTime())
@@ -348,12 +361,12 @@ export default function Exam() {
       if (!v || !v.videoWidth) return
       try {
         const res = await analyse(v, { detectPhone: exam?.config?.detect_phone !== false })
+        if (!visionReady && detectorReady()) setVisionReady(true)
         const kind = classify(res)
-        // a phone must be seen three times running; the person checks are more reliable
-        const needed = kind === 'PHONE_DETECTED' ? 3 : 2
+        // seen twice running before a proctor is bothered
         if (kind && streak.current.kind === kind) streak.current.n += 1
         else streak.current = { kind, n: 1 }
-        if (!kind || streak.current.n < needed) return
+        if (!kind || streak.current.n < 2) return
         if (Date.now() - (lastSent.current[kind] || 0) < 60000) return
         lastSent.current[kind] = Date.now()
         const shot = captureFrame(v)
@@ -363,9 +376,10 @@ export default function Exam() {
         })
       } catch { /* monitoring must never interrupt the exam */ }
     }
-    const t = setInterval(run, 8000)
+    run()
+    const t = setInterval(run, 6000)
     return () => { stopped = true; clearInterval(t) }
-  }, [phase, armed, cam, token, exam?.config?.detect_phone])
+  }, [phase, armed, cam, token, visionReady, exam?.config?.detect_phone])
 
   // while waiting for a proctor to open the batch, poll so Start unlocks by itself
   useEffect(() => {
@@ -543,6 +557,12 @@ export default function Exam() {
           <video ref={videoRef} muted playsInline autoPlay title="Your camera is being monitored"
                  style={{ width: 56, height: 42, borderRadius: 4, objectFit: 'cover',
                           background: '#000', border: '1px solid var(--line)' }} />
+        )}
+        {cam && (
+          <span className={`flags ${visionReady ? '' : 'hot'}`}
+                title={visionReady ? 'Camera monitoring active' : 'Camera monitoring is still starting'}>
+            {visionReady ? 'Camera on' : 'Camera starting…'}
+          </span>
         )}
         {mic && <span className="flags" title="Microphone permission granted">🎙 Mic on</span>}
         <span className={`flags ${hot ? 'hot' : ''}`}>Violations {flagCount}/{cfg?.max_flags}</span>

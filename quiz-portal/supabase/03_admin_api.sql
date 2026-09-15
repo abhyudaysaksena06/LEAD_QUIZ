@@ -217,7 +217,10 @@ begin
   perform quiz.rebalance_threads();
   perform quiz.expire_detections();
 
-  select coalesce(json_agg(x order by (x.unread + x.open_flags) desc, x.active desc, x.roll_no), '[]'::json)
+  -- students needing attention first: unread chats, open violations, then camera trouble
+  select coalesce(json_agg(x order by (x.unread + x.open_flags) desc,
+                           (x.status = 'in_progress' and x.camera_ok is false) desc,
+                           x.active desc, x.roll_no), '[]'::json)
     into v_rows from (
     with fl as (
       select at.roll_no,
@@ -238,7 +241,7 @@ begin
     select s.roll_no, s.full_name, s.banned,
            b.name as batch_name,
            coalesce(a.status, 'not_started') as status,
-           a.deadline_at, a.flag_count, a.submitted_at,
+           a.deadline_at, a.flag_count, a.submitted_at, a.camera_ok, a.camera_note,
            coalesce(s.last_seen_at > now() - interval '30 seconds', false) as active,
            s.last_seen_at,
            coalesce(msg.unread, 0) as unread,

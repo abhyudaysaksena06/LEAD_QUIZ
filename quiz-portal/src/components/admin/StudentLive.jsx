@@ -44,7 +44,13 @@ function Row({ s, offset, token, onChanged, onOpen }) {
             <span className="badge blocked" style={{ marginRight: 4 }}>⚠ {s.open_flags}</span>
           )}
           {Number(s.unread) > 0 && <span className="unread">{s.unread} msg</span>}
-          {attention === 0 && <span className="muted small">—</span>}
+          {s.status === 'in_progress' && s.camera_ok === false && (
+            <span className="badge" style={{ background: 'var(--warn-soft)', color: 'var(--warn)', marginLeft: 4 }}
+                  title={s.camera_note || 'camera not reporting'}>
+              camera: {s.camera_note || 'off'}
+            </span>
+          )}
+          {attention === 0 && s.camera_ok !== false && <span className="muted small">—</span>}
         </td>
         <td style={{ whiteSpace: 'nowrap' }}>
           <button className="sm ghost" onClick={() => setOpen(o => !o)}>
@@ -117,7 +123,8 @@ export default function StudentLive({ token, onOpen }) {
   }, [load])
 
   const students = data?.students || []
-  const needing = students.filter(s => Number(s.unread) + Number(s.open_flags) > 0)
+  const needing = students.filter(s => Number(s.unread) + Number(s.open_flags) > 0
+    || (s.status === 'in_progress' && s.camera_ok === false))
   const live = students.filter(s => s.active)
   const rows = filter === 'attention' ? needing : filter === 'live' ? live : students
 

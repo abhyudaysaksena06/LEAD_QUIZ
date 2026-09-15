@@ -6,6 +6,11 @@
 // Nothing here flags anybody. It only decides "is this worth a proctor's attention?".
 
 let modelPromise = null
+let ready = false
+let lastError = null
+
+export const detectorReady = () => ready
+export const detectorError = () => lastError
 
 export function loadDetector() {
   if (!modelPromise) {
@@ -13,26 +18,33 @@ export function loadDetector() {
       const tf = await import('@tensorflow/tfjs')
       await tf.ready()
       const cocoSsd = await import('@tensorflow-models/coco-ssd')
-      // lite_mobilenet_v2: ~6 MB, fast enough on modest laptops
-      return cocoSsd.load({ base: 'lite_mobilenet_v2' })
+      // mobilenet_v2 (the default) is markedly better at small objects such as a
+      // phone than lite_mobilenet_v2. It is a larger download but only fetched once.
+      const model = await cocoSsd.load({ base: 'mobilenet_v2' })
+      ready = true; lastError = null
+      return model
     })()
-    modelPromise.catch(() => { modelPromise = null })   // allow a retry later
+    modelPromise.catch(e => {
+      ready = false
+      lastError = String(e?.message || e)
+      modelPromise = null           // allow a retry later
+    })
   }
   return modelPromise
 }
 
-const PERSON_MIN = 0.5
+const PERSON_MIN = 0.45
 
-// Phone detection is the weak signal: a small dark rectangle (wallet, remote, case,
-// even a hand) reads as "cell phone". Two extra filters cut most of that noise —
-// a high confidence floor, and a minimum size, since a phone being *used* is held up
-// and therefore large in frame. Anything smaller is almost always a false positive.
-const PHONE_MIN = 0.62
-const PHONE_MIN_AREA = 0.012   // at least ~1.2% of the frame
+// Phone detection is imperfect either way: set it too high and a phone held in plain
+// sight is missed; too low and wallets and cases trigger it. Since every detection is
+// reviewed by a person before it counts, we favour catching it and let the proctor
+// throw out the false ones.
+const PHONE_MIN = 0.35
+const PHONE_MIN_AREA = 0.004   // ignore only very small specks
 
 export async function analyse(video, { detectPhone = true } = {}) {
   const model = await loadDetector()
-  const preds = await model.detect(video, 12, 0.3)
+  const preds = await model.detect(video, 12, 0.25)
   const frame = Math.max(1, (video.videoWidth || 0) * (video.videoHeight || 0))
   const people = preds.filter(p => p.class === 'person' && p.score >= PERSON_MIN)
   const phones = !detectPhone ? [] : preds.filter(p =>

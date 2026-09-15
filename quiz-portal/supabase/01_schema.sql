@@ -241,6 +241,11 @@ create table if not exists quiz.attempts (
 
 -- paused = clock frozen by a proctor; banned = disqualified
 alter table quiz.attempts add column if not exists paused_at timestamptz;
+
+-- camera health, reported on every heartbeat, so proctors can see a camera that has
+-- been switched off, denied, or whose detector failed to load
+alter table quiz.attempts add column if not exists camera_ok boolean;
+alter table quiz.attempts add column if not exists camera_note text;
 alter table quiz.attempts drop constraint if exists attempts_status_check;
 alter table quiz.attempts add constraint attempts_status_check
   check (status in ('in_progress', 'submitted', 'blocked', 'paused', 'banned'));
