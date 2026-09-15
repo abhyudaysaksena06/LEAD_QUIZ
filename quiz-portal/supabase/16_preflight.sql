@@ -13,7 +13,7 @@ q as (
          count(*) filter (where active and ext_code is null)                 as placeholders,
          count(*) filter (where kind='mcq' and active and correct_index is null) as keyless,
          count(*) filter (where kind='coding' and active
-                            and body not like '%any programming language%')  as nolang
+                            and body not like '%You may answer in Python%') as nolang
     from quiz.questions
 ),
 r as (
@@ -56,7 +56,7 @@ select * from (
   union all select 7, 'every MCQ has an answer key',
          case when q.keyless = 0 then 'OK' else 'PROBLEM' end,
          q.keyless || ' without a key' from q
-  union all select 8, 'coding says any language allowed',
+  union all select 8, 'coding lists the languages offered',
          case when q.nolang = 0 then 'OK' else 'PROBLEM' end,
          q.nolang || ' missing the note' from q
   union all select 9, 'paper template',

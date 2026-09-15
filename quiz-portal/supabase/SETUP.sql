@@ -2227,6 +2227,12 @@ exception when duplicate_object then null; end $$;
 -- not partial: ON CONFLICT (ext_code) needs to infer it. Nulls stay unconstrained.
 create unique index if not exists questions_ext_code_uq on quiz.questions (ext_code);
 
+-- drop any earlier wording of the language note before the bodies are rewritten
+update quiz.questions
+   set body = btrim(regexp_replace(body,
+         'You may (use any programming language|answer in Python).*$', '', 'n'))
+ where kind = 'coding';
+
 -- ---------- remove the placeholder bank from 04_seed.sql ----------
 -- Deleted outright, unless a placeholder is still attached to an attempt or an
 -- answer (a rehearsal run) — those are only deactivated, so old papers stay
@@ -3186,146 +3192,146 @@ on conflict (ext_code) do update set section = excluded.section, body = excluded
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L1', 'L1', 'Print the numbers 10 down to 1, one per line.
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L2', 'L2', 'Print the sum of all even numbers from 1 to 50.
 Expected output: `650`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L3', 'L3', 'Take `n = 7`. Print `n` is divisible by both 3 and 5 or not.
 Expected: "Not divisible". Then change n to 15 and re-run — tests whether they hardcoded the answer.
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L4', 'L4', 'Print the ASCII value of the character `''K''`.
 Expected: `75`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L5', 'L5', 'Given `length = 12` and `breadth = 5`, print the area and perimeter of the rectangle.
 Expected: `Area 60, Perimeter 34`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L6', 'L6', 'Given `ch = ''e''`, print whether it is a vowel or a consonant.
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L7', 'L7', 'Given `p = 5000, r = 8, t = 3`, print the simple interest.
 Expected: `1200`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L8', 'L8', 'Print the squares of the numbers 1 to 10.
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L9', 'L9', 'Given a number, print only its last digit. Use `n = 5842`.
 Expected: `2`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L10', 'L10', 'Print the first 8 multiples of 5.
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L11', 'L11', 'Given the array `{4, 17, 2, 9, 31, 6}`, print the smallest element.
 Expected: `2`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L12', 'L12', 'Given the array `{3, 8, 1, 6, 9, 4}`, print how many are even and how many are odd.
 Expected: `Even 3, Odd 3`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L13', 'L13', 'Given the array `{10, 20, 30, 40, 50}`, swap the first and last elements and print the array.
 Expected: `50 20 30 40 10`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L14', 'L14', 'Given the array `{5, 3, 8, 1}`, add 1 to every element and print the result.
 Expected: `6 4 9 2`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L15', 'L15', 'Given the array `{2, 5, 9, 14, 20}`, print whether it is sorted in ascending order.
 Expected: `Sorted`. Then change one value and re-run.
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L16', 'L16', 'Given the array `{7, 2, 8, 5, 3, 9}`, print only the elements at even indices.
 Expected: `7 8 3`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L17', 'L17', 'Find the length of the string `"recruitment"` **without** using `strlen()` or `len()`.
 Expected: `11`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L18', 'L18', 'Given `s = "LEAD society tech club"`, count and print the number of spaces.
 Expected: `3`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L19', 'L19', 'Print the string `"HELLO"` backwards.
 Expected: `OLLEH`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L20', 'L20', 'Given `a = "code"` and `b = "code"`, print whether the two strings are equal. In C, do not use `strcmp()`.
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L21', 'L21', 'Given `ch = ''7''`, print whether it is an uppercase letter, a lowercase letter, or a digit.
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L22', 'L22', 'Compute `a` raised to the power `b` using a loop. Use `a = 3, b = 4`.
 Expected: `81`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L23', 'L23', 'Print the sum of the squares of the first 6 natural numbers.
 Expected: `91`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L24', 'L24', 'Given `seconds = 7384`, print it as hours, minutes and seconds.
 Expected: `2 h 3 m 4 s`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L25', 'L25', 'Given marks `78, 65, 91` for three subjects, print the average and whether the student passed (average ≥ 40).
 Expected: `78, Pass`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L26', 'L26', 'Given `n = 5`, print this pattern:
@@ -3337,50 +3343,48 @@ insert into quiz.questions (kind, section, ext_code, title, body, marks, languag
 1 2 3 4 5
 ```
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L27', 'L27', 'Given `n = 49`, print whether it is a perfect square. No `sqrt()`.
 Expected: `Yes`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L28', 'L28', 'Given the 3×3 array `{{1,2,3},{4,5,6},{7,8,9}}`, print the sum of the main diagonal.
 Expected: `15`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L29', 'L29', 'Given `s = "programming"` and `ch = ''g''`, print how many characters come before the **first** `''g''`.
 Expected: `3`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L30', 'L30', 'Given a price of `1500` and GST of `18%`, print the final price rounded to 2 decimals.
 Expected: `1770.00`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L31', 'L31', 'Given the array `{6, 3, 6, 9, 3, 6}` and a target `6`, print both the count of the target and the index of its **last** occurrence.
 Expected: `Count 3, Last index 5`
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 insert into quiz.questions (kind, section, ext_code, title, body, marks, language, active) values
   ('coding', null, 'L32', 'L32', 'Given `n = 1234`, print the digits separated by spaces in the original order (`1 2 3 4`, not reversed).
 
-You may use any programming language to answer this question.', 5, 'python', true)
+You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.', 0, 'python', true)
 on conflict (ext_code) do update set body = excluded.body, marks = excluded.marks, language = excluded.language, kind = excluded.kind, active = true;
 
--- belt and braces: every coding question carries the language note
+-- belt and braces: every coding question names the languages on offer
 update quiz.questions
-   set body = body || E'
-
-You may use any programming language to answer this question.'
- where kind = 'coding' and active and body not like '%any programming language%';
+   set body = body || chr(10) || chr(10) || 'You may answer in Python, JavaScript, C, C++ or Java. Python and JavaScript run in the editor; C, C++ and Java are saved and reviewed by the examiners.'
+ where kind = 'coding' and active and body not like '%You may answer in Python%';
 
 select 'question bank' as step,
        count(*) filter (where kind='mcq' and section='A'    and active) as sec_a,
@@ -4105,7 +4109,7 @@ q as (
          count(*) filter (where active and ext_code is null)                 as placeholders,
          count(*) filter (where kind='mcq' and active and correct_index is null) as keyless,
          count(*) filter (where kind='coding' and active
-                            and body not like '%any programming language%')  as nolang
+                            and body not like '%You may answer in Python%') as nolang
     from quiz.questions
 ),
 r as (
@@ -4148,7 +4152,7 @@ select * from (
   union all select 7, 'every MCQ has an answer key',
          case when q.keyless = 0 then 'OK' else 'PROBLEM' end,
          q.keyless || ' without a key' from q
-  union all select 8, 'coding says any language allowed',
+  union all select 8, 'coding lists the languages offered',
          case when q.nolang = 0 then 'OK' else 'PROBLEM' end,
          q.nolang || ' missing the note' from q
   union all select 9, 'paper template',
