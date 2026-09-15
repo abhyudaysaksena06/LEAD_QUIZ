@@ -48,9 +48,14 @@ begin
   if s.banned then return json_build_object('ok', false, 'code', 'BANNED'); end if;
   delete from quiz.login_failures where subject = 'student:' || trim(p_roll);
 
-  -- single active session: a new login signs out any other device/tab
-  update quiz.sessions set revoked = true
-   where kind = 'student' and subject = s.roll_no and not revoked;
+  -- Before the test starts they may sign in and out as often as they like, on as many
+  -- devices as they like. Once their attempt is live it is one device only, so a new
+  -- login signs the other one out.
+  if exists (select 1 from quiz.attempts
+              where roll_no = s.roll_no and status in ('in_progress', 'paused')) then
+    update quiz.sessions set revoked = true
+     where kind = 'student' and subject = s.roll_no and not revoked;
+  end if;
 
   -- 12h: students sign in hours before the test, so the session must outlive the wait
   insert into quiz.sessions (kind, subject, expires_at, device)
@@ -88,8 +93,12 @@ begin
 
   -- already registered: sign them straight in
   if s.roll_no is not null then
-    update quiz.sessions set revoked = true
-     where kind = 'student' and subject = s.roll_no and not revoked;
+    -- same rule as password sign-in: only one device once the test is under way
+    if exists (select 1 from quiz.attempts
+                where roll_no = s.roll_no and status in ('in_progress', 'paused')) then
+      update quiz.sessions set revoked = true
+       where kind = 'student' and subject = s.roll_no and not revoked;
+    end if;
     insert into quiz.sessions (kind, subject, expires_at, device)
     values ('student', s.roll_no, now() + interval '12 hours', p_device)
     returning token into v_token;
@@ -217,8 +226,11 @@ begin
        'exam_title', v_cfg.exam_title, 'duration_minutes', v_cfg.duration_minutes,
        'mcq_count', v_cfg.mcq_count, 'coding_count', v_cfg.coding_count,
        'max_flags', v_cfg.max_flags, 'exam_open', v_cfg.exam_open,
-       'require_mic', v_cfg.require_mic, 'require_camera', v_cfg.require_camera),
-    'student', json_build_object('roll_no', v_student.roll_no, 'full_name', v_student.full_name),
+       'require_mic', v_cfg.require_mic, 'require_camera', v_cfg.require_camera,
+       'detect_phone', v_cfg.detect_phone),
+    'student', json_build_object('roll_no', v_student.roll_no, 'full_name', v_student.full_name,
+                                 'consented', (v_student.consented_at is not null),
+                                 'consented_at', v_student.consented_at),
     'batch', case when v_batch.id is null then null else json_build_object(
        'id', v_batch.id, 'name', v_batch.name, 'is_open', v_batch.is_open,
        'duration_minutes', coalesce(v_batch.duration_minutes, v_cfg.duration_minutes)) end,
@@ -263,6 +275,12 @@ begin
 
   v_minutes := coalesce(v_batch.duration_minutes, v_cfg.duration_minutes);
 
+  -- checked last, so a student whose round is closed gets that message instead
+  if not exists (select 1 from quiz.students
+                  where roll_no = v_roll and consented_at is not null) then
+    raise exception 'CONSENT_REQUIRED';
+  end if;
+
   if not exists (select 1 from quiz.attempts where roll_no = v_roll) then
     with m as (select id from quiz.questions where kind = 'mcq' and active
                 order by random() limit v_cfg.mcq_count),
@@ -279,6 +297,11 @@ begin
                   coalesce(v_batch.closes_at, now() + make_interval(mins => v_minutes))))
     on conflict (roll_no) do nothing;   -- double-click safe
   end if;
+
+  -- The test is now live: close every other device this student left signed in.
+  -- From here until they finish, this token is the only one that works.
+  update quiz.sessions set revoked = true
+   where kind = 'student' and subject = v_roll and not revoked and token <> p_token;
 
   return public.get_exam_state(p_token);
 end $$;
@@ -360,15 +383,32 @@ begin
     returning * into v_att;
 
     if v_att.flag_count >= v_cfg.max_flags then
+      -- Their paper is submitted, but the session stays alive: they land on the
+      -- "locked" screen and can message a proctor straight away rather than
+      -- having to sign in again.
       perform quiz.finalize_attempt(v_att.id, 'blocked', 'FLAG_LIMIT');
-      update quiz.sessions set revoked = true            -- logged out
-       where kind = 'student' and subject = v_roll;
       select * into v_att from quiz.attempts where id = v_att.id;
     end if;
   end if;
 
   return json_build_object('status', v_att.status, 'flag_count', v_att.flag_count,
                            'max_flags', v_cfg.max_flags, 'counted', v_counted);
+end $$;
+
+-- ---------- consent ----------
+-- Recorded once per student, with a timestamp and the version of the notice they saw,
+-- so there is a defensible record of what they agreed to.
+create or replace function public.student_accept_consent(p_token uuid, p_version text default 'v1')
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_roll text := quiz.student_from_token(p_token);
+begin
+  update quiz.students
+     set consented_at = coalesce(consented_at, now()),
+         consent_version = coalesce(consent_version, left(p_version, 40))
+   where roll_no = v_roll;
+  return (select json_build_object('ok', true, 'consented_at', consented_at,
+                                   'consent_version', consent_version)
+            from quiz.students where roll_no = v_roll);
 end $$;
 
 -- ---------- camera detections ----------
@@ -423,16 +463,20 @@ returns json language plpgsql security definer set search_path = quiz, public as
 declare v_roll text := quiz.student_from_token(p_token); v_att quiz.attempts; v_unread int;
         v_device text;
 begin
-  -- One live browser per account. If this token turns up from a second device the
-  -- session is killed for BOTH, so a copied token can't be used in parallel.
-  -- returns (not raises) so the revoke is actually committed
-  select device into v_device from quiz.sessions where token = p_token;
-  if v_device is not null and p_device is not null and v_device <> p_device then
-    update quiz.sessions set revoked = true where token = p_token;
-    return json_build_object('ok', false, 'code', 'SESSION_TAKEN');
-  end if;
-  if v_device is null and p_device is not null then
-    update quiz.sessions set device = p_device where token = p_token;
+  select * into v_att from quiz.attempts where roll_no = v_roll;
+
+  -- Device lock applies only while the test is live. Before it starts, the same
+  -- account may be open on several devices; during it, a token appearing from a
+  -- second browser kills the session (returns rather than raises, so it commits).
+  if v_att.status in ('in_progress', 'paused') then
+    select device into v_device from quiz.sessions where token = p_token;
+    if v_device is not null and p_device is not null and v_device <> p_device then
+      update quiz.sessions set revoked = true where token = p_token;
+      return json_build_object('ok', false, 'code', 'SESSION_TAKEN');
+    end if;
+    if v_device is null and p_device is not null then
+      update quiz.sessions set device = p_device where token = p_token;
+    end if;
   end if;
 
   select * into v_att from quiz.attempts where roll_no = v_roll;

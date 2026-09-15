@@ -7,8 +7,12 @@
 -- Safe to re-run.
 -- =====================================================================
 
+-- placeholder accounts always use 5-DIGIT roll numbers so they can never collide
+-- with a real student's roll number
+delete from quiz.students where roll_no = '1025030923';   -- retired earlier placeholder
+
 insert into quiz.students (roll_no, password_hash, full_name)
-values ('1025030923', quiz.hash_password('JAILEAD'), 'Test Student')
+values ('58204', quiz.hash_password('JAILEAD'), 'Seed Test Student')
 on conflict (roll_no) do update set password_hash = excluded.password_hash;
 
 insert into quiz.admins (username, password_hash, display_name)

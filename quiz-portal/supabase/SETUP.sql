@@ -1,8 +1,20 @@
--- LEAD Quiz Portal — ALL IN ONE (01+02+03+04). Paste into Supabase SQL Editor. Safe to re-run.
+-- =====================================================================
+-- LEAD Quiz Portal — MASTER SETUP
+--
+-- Paste this ONE file into the Supabase SQL Editor and run it.
+--   1. schema, student API, admin API          (01 + 02 + 03)
+--   2. admin account + placeholder questions   (04)
+--   3. five proctor logins                     (08)
+--   4. the four rounds                         (09)
+--   5. 12 sample test students, 3 per round    (10)
+--
+-- Safe to re-run. Existing students, answers and chats are kept.
+-- Re-running RESETS the TEST* accounts so you can rehearse repeatedly.
+-- Afterwards run 11_test_access.sql for your own Google/USER/ADMIN logins.
+-- =====================================================================
 
 
-
--- ############################## 01_schema.sql ##############################
+-- ##############################  01_schema.sql  ##############################
 
 -- =====================================================================
 -- LEAD Quiz Portal — 01: schema
@@ -522,7 +534,7 @@ returns boolean language sql security definer set search_path = quiz, extensions
 $$;
 
 
--- ############################## 02_student_api.sql ##############################
+-- ##############################  02_student_api.sql  ##############################
 
 -- =====================================================================
 -- LEAD Quiz Portal — 02: student API (callable from the browser via RPC)
@@ -1042,7 +1054,7 @@ begin
 end $$;
 
 
--- ############################## 03_admin_api.sql ##############################
+-- ##############################  03_admin_api.sql  ##############################
 
 -- =====================================================================
 -- LEAD Quiz Portal — 03: admin API + permissions
@@ -1962,7 +1974,7 @@ begin
 end $$;
 
 
--- ############################## 04_seed.sql ##############################
+-- ##############################  04_seed.sql  ##############################
 
 -- =====================================================================
 -- LEAD Quiz Portal — 04: seed data
@@ -2023,3 +2035,168 @@ select q.id, v.ord, v.stdin, v.expected, v.sample, 1
  cross join (values (1, '5', '15', true), (2, '10', '55', false), (3, '1', '1', false)) as v(ord, stdin, expected, sample)
  where q.kind = 'coding'
    and not exists (select 1 from quiz.question_tests t where t.question_id = q.id);
+
+
+-- ##############################  08_proctors.sql  ##############################
+
+-- =====================================================================
+-- LEAD Quiz Portal — 08: five proctor logins
+--
+-- Creates one login per proctor station. Student chat queries are shared
+-- automatically between whichever of these are signed in and active.
+--
+-- CHANGE THESE PASSWORDS before exam day. Safe to re-run (it resets them).
+-- =====================================================================
+
+insert into quiz.admins (username, password_hash, display_name) values
+  ('proctor1', quiz.hash_password('LEAD-P1-2026'), 'Proctor 1'),
+  ('proctor2', quiz.hash_password('LEAD-P2-2026'), 'Proctor 2'),
+  ('proctor3', quiz.hash_password('LEAD-P3-2026'), 'Proctor 3'),
+  ('proctor4', quiz.hash_password('LEAD-P4-2026'), 'Proctor 4'),
+  ('proctor5', quiz.hash_password('LEAD-P5-2026'), 'Proctor 5')
+on conflict (username) do update
+  set password_hash = excluded.password_hash,
+      display_name  = excluded.display_name;
+
+-- change one password later:
+-- update quiz.admins set password_hash = quiz.hash_password('NEW-PASSWORD') where username = 'proctor3';
+
+-- add a sixth station:
+-- insert into quiz.admins (username, password_hash, display_name)
+-- values ('proctor6', quiz.hash_password('...'), 'Proctor 6');
+
+select username, display_name, last_seen_at from quiz.admins order by username;
+
+
+-- ##############################  09_rounds.sql  ##############################
+
+-- =====================================================================
+-- LEAD Quiz Portal — 09: the four rounds
+--
+--   Round 1, Round 2, Round 3   — ~60 students each
+--   Round 4 (Backup)            — spare slot for anyone who missed their round,
+--                                 had a technical problem, or needs a re-sit
+--
+-- All four start CLOSED with a 30-minute window; each student gets their own
+-- 15 minutes inside it. You open one at a time from Admin -> Rounds.
+--
+-- Leaves EXACTLY these four batches. Anyone sitting in an old batch is moved to
+-- Round 4 first, so nobody is stranded. Safe to re-run.
+-- =====================================================================
+
+-- 1. the four rounds
+insert into quiz.batches (name, is_open, window_minutes) values
+  ('Round 1',          false, 30),
+  ('Round 2',          false, 30),
+  ('Round 3',          false, 30),
+  ('Round 4 (Backup)', false, 30)
+on conflict (name) do nothing;
+
+update quiz.batches set window_minutes = 30
+ where name in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)');
+
+-- 2. move anyone left in an older batch into the backup round
+update quiz.students s
+   set batch_id = (select id from quiz.batches where name = 'Round 4 (Backup)')
+ where s.batch_id is not null
+   and s.batch_id not in (select id from quiz.batches
+                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)'));
+
+update quiz.allowlist a
+   set batch_id = (select id from quiz.batches where name = 'Round 4 (Backup)')
+ where a.batch_id is not null
+   and a.batch_id not in (select id from quiz.batches
+                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)'));
+
+-- 3. remove every other batch (now guaranteed empty)
+delete from quiz.batches
+ where name not in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)');
+
+-- 4. confirm: this must show exactly four rows
+select b.name, b.is_open, b.window_minutes,
+       (select count(*) from quiz.allowlist a where a.batch_id = b.id) as emails_authorised,
+       (select count(*) from quiz.students  s where s.batch_id = b.id) as registered
+  from quiz.batches b
+ order by b.name;
+
+
+-- ##############################  10_test_students.sql  ##############################
+
+-- =====================================================================
+-- LEAD Quiz Portal — 10: sample test students (3 per round, 5-digit roll numbers)
+--
+-- Roll number = username. Run AFTER 09_rounds.sql.
+-- Re-running RESETS them completely (attempts, violations, chats, bans cleared),
+-- so you can rehearse a round as many times as you like.
+--
+-- DELETE THEM BEFORE THE REAL EXAM:
+--   delete from quiz.students where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+-- =====================================================================
+
+-- retire every earlier placeholder (they used non-numeric or 10-digit roll numbers)
+delete from quiz.students where roll_no like 'TESTB%' or roll_no like 'TEST%' or roll_no = '1025030923';
+
+insert into quiz.students (roll_no, password_hash, full_name, batch_id)
+select v.roll, quiz.hash_password(v.pass), v.name, b.id
+from (values
+  ('41729', 'JAILEAD', 'Tester A - Round 1', 'Round 1'),
+  ('60853', 'JAILEAD', 'Tester B - Round 1', 'Round 1'),
+  ('27164', 'JAILEAD', 'Tester C - Round 1', 'Round 1'),
+
+  ('39508', 'JAILEAD', 'Tester A - Round 2', 'Round 2'),
+  ('72641', 'JAILEAD', 'Tester B - Round 2', 'Round 2'),
+  ('18395', 'JAILEAD', 'Tester C - Round 2', 'Round 2'),
+
+  ('84072', 'JAILEAD', 'Tester A - Round 3', 'Round 3'),
+  ('53619', 'JAILEAD', 'Tester B - Round 3', 'Round 3'),
+  ('26748', 'JAILEAD', 'Tester C - Round 3', 'Round 3'),
+
+  ('91536', 'JAILEAD', 'Tester A - Backup', 'Round 4 (Backup)'),
+  ('47280', 'JAILEAD', 'Tester B - Backup', 'Round 4 (Backup)'),
+  ('65913', 'JAILEAD', 'Tester C - Backup', 'Round 4 (Backup)')
+) as v(roll, pass, name, batch_name)
+join quiz.batches b on b.name = v.batch_name
+on conflict (roll_no) do update
+  set password_hash = excluded.password_hash,
+      full_name     = excluded.full_name,
+      batch_id      = excluded.batch_id;
+
+-- full reset so every rehearsal starts clean
+update quiz.students set banned = false, banned_reason = null, banned_at = null
+ where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+delete from quiz.attempts   where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');   -- cascades answers + violations
+delete from quiz.detections where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+delete from quiz.messages   where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+delete from quiz.threads    where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+delete from quiz.sessions   where kind = 'student' and subject in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+
+select s.roll_no as username, b.name as round, s.full_name
+  from quiz.students s join quiz.batches b on b.id = s.batch_id
+ where s.roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204')
+ order by b.name, s.roll_no;
+
+
+-- =====================================================================
+-- FINAL CHECK — read the NOTICE and the table below
+-- =====================================================================
+do $chk$
+declare v text;
+begin
+  if to_regclass('cron.job') is null then
+    raise notice 'pg_cron is NOT enabled. Auto-submit will only run while an admin has the dashboard open. Enable pg_cron in Database > Extensions, then run this file again.';
+  else
+    execute 'select count(*)::text from cron.job where jobname = ''lead-quiz-expire''' into v;
+    if v = '0' then raise notice 'pg_cron is enabled but the timer job was not created - run this file again.';
+    else raise notice 'Timer job scheduled: auto-submit runs every minute.';
+    end if;
+  end if;
+end $chk$;
+
+select 'rounds'                as item, count(*)::text as value from quiz.batches
+union all select 'admin + proctor logins', count(*)::text from quiz.admins
+union all select 'questions in bank',      count(*)::text from quiz.questions
+union all select 'test students',          count(*)::text from quiz.students where roll_no like 'TEST%'
+union all select 'camera monitoring',      (select require_camera::text from quiz.config where id = 1)
+union all select 'mic required',           (select require_mic::text from quiz.config where id = 1)
+union all select 'minutes per student',    (select duration_minutes::text from quiz.config where id = 1)
+union all select 'round window (minutes)', (select max(window_minutes)::text from quiz.batches);

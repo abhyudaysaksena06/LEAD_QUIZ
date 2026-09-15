@@ -193,8 +193,8 @@ begin
   update quiz.attempts set flag_count = flag_count + 1 where id = v_att.id returning * into v_att;
 
   if v_att.flag_count >= v_cfg.max_flags and v_att.status = 'in_progress' then
+    -- session deliberately left alive so they can reach a proctor immediately
     perform quiz.finalize_attempt(v_att.id, 'blocked', 'FLAG_LIMIT');
-    update quiz.sessions set revoked = true where kind = 'student' and subject = v_att.roll_no;
     v_blocked := true;
   end if;
 
@@ -285,7 +285,9 @@ begin
   return json_build_object(
     'student', json_build_object('roll_no', v_student.roll_no, 'full_name', v_student.full_name,
                                  'email', v_student.email, 'banned', v_student.banned,
-                                 'banned_reason', v_student.banned_reason),
+                                 'banned_reason', v_student.banned_reason,
+                                 'consented_at', v_student.consented_at,
+                                 'consent_version', v_student.consent_version),
     'attempt', row_to_json(v_att),
     'questions', coalesce((
       select json_agg(json_build_object(
@@ -648,13 +650,15 @@ drop function if exists public.admin_update_config(uuid, boolean, int, text);
 drop function if exists public.admin_update_config(uuid, boolean, int, text, int, int);
 drop function if exists public.admin_update_config(uuid, boolean, int, text, int, int, boolean);
 drop function if exists public.admin_update_config(uuid, boolean, int, text, int, int, boolean, int);
+drop function if exists public.admin_update_config(uuid, boolean, int, text, int, int, boolean, int, boolean);
 create or replace function public.admin_update_config(p_token uuid, p_exam_open boolean,
                                                       p_duration_minutes int, p_exam_title text,
                                                       p_mcq_count int default null,
                                                       p_coding_count int default null,
                                                       p_require_mic boolean default null,
                                                       p_max_concurrent int default null,
-                                                      p_require_camera boolean default null)
+                                                      p_require_camera boolean default null,
+                                                      p_detect_phone boolean default null)
 returns json language plpgsql security definer set search_path = quiz, public as $$
 declare v_admin text := quiz.admin_from_token(p_token);
 begin
@@ -666,7 +670,8 @@ begin
     coding_count     = greatest(coalesce(p_coding_count, coding_count), 0),  -- 0 = MCQ-only exam
     require_mic      = coalesce(p_require_mic, require_mic),
     max_concurrent   = greatest(coalesce(p_max_concurrent, max_concurrent), 1),
-    require_camera   = coalesce(p_require_camera, require_camera)
+    require_camera   = coalesce(p_require_camera, require_camera),
+    detect_phone     = coalesce(p_detect_phone, detect_phone)
   where id = 1;
   perform quiz.audit(v_admin, 'UPDATE_CONFIG', null, json_build_object(
     'exam_open', p_exam_open, 'duration_minutes', p_duration_minutes)::jsonb);
@@ -898,7 +903,7 @@ begin
          'admin_upsert_students','admin_list_questions',
          'admin_create_batch','admin_set_batch_open','admin_update_batch','admin_delete_batch',
          'admin_assign_batch','admin_save_auto_grade','admin_pending_coding','admin_export_answers',
-         'admin_live','admin_resolve_flags','student_report_detection',
+         'admin_live','admin_resolve_flags','student_report_detection','student_accept_consent',
          'admin_review_queue','admin_review_image','admin_decide_detection',
          'admin_force_submit_batch','admin_pause_attempt','admin_resume_attempt',
          'admin_ban_student','admin_unban_student',

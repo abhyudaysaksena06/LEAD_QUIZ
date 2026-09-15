@@ -8,6 +8,7 @@ import { analyse, classify, loadDetector } from '../lib/vision'
 import { deviceId } from '../lib/device'
 import CodeWorkspace from '../components/CodeWorkspace'
 import ChatBox from '../components/ChatBox'
+import ConsentForm, { CONSENT_VERSION } from '../components/ConsentForm'
 
 const LETTERS = 'ABCDEFGHIJ'
 const fmtClock = ms => {
@@ -65,6 +66,7 @@ export default function Exam() {
   const lastSent = useRef({})
   const streak = useRef({ kind: null, n: 0 })
   const [confirmSubmit, setConfirmSubmit] = useState(false)
+  const [showConsent, setShowConsent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
@@ -197,9 +199,12 @@ export default function Exam() {
       const r = await rpc('report_flag', { p_token: token, p_kind: kind, p_detail: detail || null })
       if (r.flag_count != null) setFlagCount(r.flag_count)
       if (r.status === 'blocked') {
+        // Their paper is submitted, but we keep them signed in so the locked screen
+        // (with the proctor chat on it) is right there — no signing in again.
         ending.current = true
-        releaseScreen(); releaseMic(); releaseCamera(); store.del('student')
-        setPhase('terminated')
+        setArmed(false); releaseScreen(); releaseMic(); releaseCamera()
+        setMic(false); setCam(false)
+        await load()
       } else if (r.counted) {
         notice(`Warning: violation ${r.flag_count} of ${r.max_flags} recorded.`)
       }
@@ -234,7 +239,22 @@ export default function Exam() {
     return true
   }
 
-  async function start() {
+  // Consent is required once, and recorded server-side, before anyone can start.
+  async function agreeToConsent() {
+    setBusy(true); setError('')
+    try {
+      await rpc('student_accept_consent', { p_token: token, p_version: CONSENT_VERSION })
+      setShowConsent(false)
+      setBusy(false)
+      await start(true)
+    } catch (e) {
+      if (!handleError(e)) setError(e.message)
+      setBusy(false)
+    }
+  }
+
+  async function start(consentGiven = false) {
+    if (!consentGiven && !exam?.student?.consented) { setShowConsent(true); return }
     setBusy(true); setError('')
     if (!(await ensureMedia())) { setBusy(false); return }
     try { await enterFullscreen() }
@@ -327,11 +347,13 @@ export default function Exam() {
       const v = videoRef.current
       if (!v || !v.videoWidth) return
       try {
-        const res = await analyse(v)
+        const res = await analyse(v, { detectPhone: exam?.config?.detect_phone !== false })
         const kind = classify(res)
+        // a phone must be seen three times running; the person checks are more reliable
+        const needed = kind === 'PHONE_DETECTED' ? 3 : 2
         if (kind && streak.current.kind === kind) streak.current.n += 1
         else streak.current = { kind, n: 1 }
-        if (!kind || streak.current.n < 2) return
+        if (!kind || streak.current.n < needed) return
         if (Date.now() - (lastSent.current[kind] || 0) < 60000) return
         lastSent.current[kind] = Date.now()
         const shot = captureFrame(v)
@@ -343,7 +365,7 @@ export default function Exam() {
     }
     const t = setInterval(run, 8000)
     return () => { stopped = true; clearInterval(t) }
-  }, [phase, armed, cam, token])
+  }, [phase, armed, cam, token, exam?.config?.detect_phone])
 
   // while waiting for a proctor to open the batch, poll so Start unlocks by itself
   useEffect(() => {
@@ -422,12 +444,20 @@ export default function Exam() {
         )}
         {error && <div className="error">{error}</div>}
         <div className="row">
-          <button className="lg" onClick={start} disabled={busy || !exam?.can_start}>{busy ? 'Starting…' : 'Start test in fullscreen'}</button>
+          <button className="lg" onClick={() => start()} disabled={busy || !exam?.can_start}>{busy ? 'Starting…' : 'Start test in fullscreen'}</button>
           {!exam?.can_start && <button className="ghost" onClick={load}>Refresh</button>}
           <span className="spacer" />
           <button className="ghost" onClick={signOut}>Sign out</button>
         </div>
       </div>
+      {showConsent && (
+        <ConsentForm
+          examTitle={cfg?.exam_title} roll={roll} name={exam?.student?.full_name}
+          requireCamera={cfg?.require_camera} requireMic={cfg?.require_mic}
+          maxFlags={cfg?.max_flags} minutes={exam?.batch?.duration_minutes ?? cfg?.duration_minutes}
+          busy={busy} onAgree={agreeToConsent} onCancel={() => setShowConsent(false)}
+        />
+      )}
       {chat}
     </div>
   )
@@ -483,7 +513,8 @@ export default function Exam() {
       <div className="card wide" style={{ borderTop: '4px solid var(--bad)' }}>
         <h1>Your test is locked</h1>
         <p>{END_TEXT.FLAG_LIMIT} Your answers were saved.</p>
-        <p className="muted">If you believe this was a mistake, message a proctor below. If they restore your test, this page updates automatically and you can continue with your remaining time.</p>
+        <p className="muted">You are still signed in. If you believe this was a mistake, message a proctor below —
+          if they restore your test, this page continues by itself with the time you had left.</p>
         <div style={{ display: 'grid', gridTemplateRows: '260px auto', border: '1px solid var(--line)', borderRadius: 8, marginTop: 10 }}>
           <ChatBox me="student" load={() => rpc('student_get_messages', { p_token: token })}
                    send={body => rpc('student_send_message', { p_token: token, p_body: body })} />

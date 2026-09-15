@@ -1,0 +1,51 @@
+#!/bin/sh
+# Rebuilds SETUP.sql from the numbered files. Run after editing any of them.
+{
+cat <<'HDR'
+-- =====================================================================
+-- LEAD Quiz Portal — MASTER SETUP
+--
+-- Paste this ONE file into the Supabase SQL Editor and run it.
+--   1. schema, student API, admin API          (01 + 02 + 03)
+--   2. admin account + placeholder questions   (04)
+--   3. five proctor logins                     (08)
+--   4. the four rounds                         (09)
+--   5. 12 sample test students, 3 per round    (10)
+--
+-- Safe to re-run. Existing students, answers and chats are kept.
+-- Re-running RESETS the TEST* accounts so you can rehearse repeatedly.
+-- Afterwards run 11_test_access.sql for your own Google/USER/ADMIN logins.
+-- =====================================================================
+HDR
+for f in 01_schema.sql 02_student_api.sql 03_admin_api.sql 04_seed.sql 08_proctors.sql 09_rounds.sql 10_test_students.sql; do
+  printf '\n\n-- ##############################  %s  ##############################\n\n' "$f"; cat "$f"
+done
+cat <<'FTR'
+
+
+-- =====================================================================
+-- FINAL CHECK — read the NOTICE and the table below
+-- =====================================================================
+do $chk$
+declare v text;
+begin
+  if to_regclass('cron.job') is null then
+    raise notice 'pg_cron is NOT enabled. Auto-submit will only run while an admin has the dashboard open. Enable pg_cron in Database > Extensions, then run this file again.';
+  else
+    execute 'select count(*)::text from cron.job where jobname = ''lead-quiz-expire''' into v;
+    if v = '0' then raise notice 'pg_cron is enabled but the timer job was not created - run this file again.';
+    else raise notice 'Timer job scheduled: auto-submit runs every minute.';
+    end if;
+  end if;
+end $chk$;
+
+select 'rounds'                as item, count(*)::text as value from quiz.batches
+union all select 'admin + proctor logins', count(*)::text from quiz.admins
+union all select 'questions in bank',      count(*)::text from quiz.questions
+union all select 'test students',          count(*)::text from quiz.students where roll_no like 'TEST%'
+union all select 'camera monitoring',      (select require_camera::text from quiz.config where id = 1)
+union all select 'mic required',           (select require_mic::text from quiz.config where id = 1)
+union all select 'minutes per student',    (select duration_minutes::text from quiz.config where id = 1)
+union all select 'round window (minutes)', (select max(window_minutes)::text from quiz.batches);
+FTR
+} > SETUP.sql

@@ -22,13 +22,22 @@ export function loadDetector() {
 }
 
 const PERSON_MIN = 0.5
-const PHONE_MIN = 0.45
 
-export async function analyse(video) {
+// Phone detection is the weak signal: a small dark rectangle (wallet, remote, case,
+// even a hand) reads as "cell phone". Two extra filters cut most of that noise —
+// a high confidence floor, and a minimum size, since a phone being *used* is held up
+// and therefore large in frame. Anything smaller is almost always a false positive.
+const PHONE_MIN = 0.62
+const PHONE_MIN_AREA = 0.012   // at least ~1.2% of the frame
+
+export async function analyse(video, { detectPhone = true } = {}) {
   const model = await loadDetector()
   const preds = await model.detect(video, 12, 0.3)
+  const frame = Math.max(1, (video.videoWidth || 0) * (video.videoHeight || 0))
   const people = preds.filter(p => p.class === 'person' && p.score >= PERSON_MIN)
-  const phones = preds.filter(p => p.class === 'cell phone' && p.score >= PHONE_MIN)
+  const phones = !detectPhone ? [] : preds.filter(p =>
+    p.class === 'cell phone' && p.score >= PHONE_MIN
+    && (p.bbox[2] * p.bbox[3]) / frame >= PHONE_MIN_AREA)
   return {
     people: people.length,
     phones: phones.length,

@@ -3,7 +3,7 @@ import { rpc } from '../../lib/api'
 import { fmtTime } from './util'
 
 const KIND = {
-  PHONE_DETECTED: { label: 'Possible phone', colour: 'var(--bad)' },
+  PHONE_DETECTED: { label: 'Possible phone', colour: 'var(--bad)', weak: true },
   MULTIPLE_PEOPLE: { label: 'More than one person', colour: 'var(--bad)' },
   NO_PERSON: { label: 'Nobody in frame', colour: 'var(--warn)' },
 }
@@ -55,6 +55,12 @@ function Item({ token, item, onDone }) {
                style={{ width: '100%', borderRadius: 6, margin: '8px 0', background: '#000' }} />
         : <p className="muted small" style={{ margin: '8px 0' }}>Loading snapshot…</p>}
 
+      {k.weak && (
+        <p className="small" style={{ color: 'var(--warn)', margin: '4px 0' }}>
+          Phone detection is unreliable — wallets, cases and remotes often trigger it.
+          Flag only if you can clearly see a phone in the image.
+        </p>
+      )}
       <div className="small muted">
         {item.detail?.people?.length > 0 && <>people: {item.detail.people.join(', ')} · </>}
         {item.detail?.phones?.length > 0 && <>phone: {item.detail.phones.join(', ')} · </>}

@@ -34,6 +34,7 @@ const FRIENDLY = {
   CAPACITY_FULL: 'The test is at capacity right now. Wait a moment and press Start again.',
   ROUND_ENDED: 'Your round has finished. Contact a proctor if you were unable to start.',
   NOT_PAUSED: 'This student is not paused.',
+  CONSENT_REQUIRED: 'You must accept the consent notice before starting.',
   ALREADY_REGISTERED: 'This account has already been registered.',
   ROLL_ALREADY_USED: 'That roll number is already registered by someone else. Check it, or contact a proctor.',
   ROLL_TOO_SHORT: 'Please enter your full roll number.',

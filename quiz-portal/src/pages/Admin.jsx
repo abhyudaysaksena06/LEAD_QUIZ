@@ -201,6 +201,7 @@ function SettingsTab({ token, config, onChanged }) {
   const [reqMic, setReqMic] = useState(config.require_mic)
   const [maxCon, setMaxCon] = useState(config.max_concurrent ?? 200)
   const [reqCam, setReqCam] = useState(config.require_camera ?? true)
+  const [detectPhone, setDetectPhone] = useState(config.detect_phone ?? true)
   const [msg, setMsg] = useState('')
 
   async function save(e) {
@@ -210,7 +211,7 @@ function SettingsTab({ token, config, onChanged }) {
                                          p_duration_minutes: Number(duration), p_exam_title: title,
                                          p_mcq_count: Number(mcq), p_coding_count: Number(coding),
                                          p_require_mic: reqMic, p_max_concurrent: Number(maxCon),
-                                         p_require_camera: reqCam })
+                                         p_require_camera: reqCam, p_detect_phone: detectPhone })
       setMsg('Saved.'); onChanged()
     } catch (err) { setMsg(err.message) }
   }
@@ -237,6 +238,15 @@ function SettingsTab({ token, config, onChanged }) {
       </label>
       <p className="small muted">Detections go to <b>Camera review</b> for a proctor to approve or dismiss.
         Nothing is flagged automatically and no snapshot is kept after you decide.</p>
+
+      <label className="row" style={{ fontWeight: 600 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={detectPhone}
+               onChange={e => setDetectPhone(e.target.checked)} />
+        Also look for phones (less reliable)
+      </label>
+      <p className="small muted">Person counting is dependable; phone detection is not — small dark objects can
+        read as a phone, and a phone in someone’s lap is invisible to a laptop camera. Turn this off to send
+        only “more than one person” and “nobody in frame” for review.</p>
 
       <label className="row" style={{ fontWeight: 600 }}>
         <input type="checkbox" style={{ width: 'auto' }} checked={reqMic} onChange={e => setReqMic(e.target.checked)} />

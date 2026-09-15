@@ -41,6 +41,10 @@ alter table quiz.config add column if not exists max_concurrent int not null def
 -- camera monitoring: permission required to start, detections go to a human for review
 alter table quiz.config add column if not exists require_camera boolean not null default true;
 
+-- Phone detection is the least reliable signal (small object, often out of frame).
+-- Turn it off to leave only person-count monitoring, which is far more dependable.
+alter table quiz.config add column if not exists detect_phone boolean not null default true;
+
 -- ---------- batches ----------
 -- A student can only START when their batch is open. Opening a batch is how you
 -- "start the quiz" for that group. Closing it stops new starts but never
@@ -74,6 +78,10 @@ create index if not exists students_batch_idx on quiz.students (batch_id);
 
 -- presence: refreshed by every student API call, so proctors can see who is live
 alter table quiz.students add column if not exists last_seen_at timestamptz;
+
+-- consent must be recorded before a student can start (see student_accept_consent)
+alter table quiz.students add column if not exists consented_at timestamptz;
+alter table quiz.students add column if not exists consent_version text;
 
 -- a banned student cannot sign in at all, by any method
 alter table quiz.students add column if not exists banned boolean not null default false;
