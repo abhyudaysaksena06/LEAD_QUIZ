@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { rpc, store } from '../lib/api'
-import { compressImage } from '../lib/image'
 import { firebaseSignOut } from '../lib/firebase'
 import { deviceId } from '../lib/device'
 
@@ -17,8 +16,10 @@ export default function Register({ info, onDone, onCancel }) {
     const file = e.target.files?.[0]
     if (!file) return
     setError('')
-    try { setPhoto(await compressImage(file)) }
-    catch (err) { setPhoto(null); setError(err.message) }
+    if (!file.type.startsWith('image/')) { setPhoto(null); setError('Please choose an image file.'); return }
+    // Preview only. The image is never read into memory, compressed or uploaded.
+    if (photo?.dataUrl) URL.revokeObjectURL(photo.dataUrl)
+    setPhoto({ dataUrl: URL.createObjectURL(file), bytes: file.size })
   }
 
   async function submit(e) {
@@ -28,7 +29,7 @@ export default function Register({ info, onDone, onCancel }) {
     try {
       const s = await rpc('student_register', {
         p_roll: roll.trim(), p_full_name: name.trim(),
-        p_id_mime: photo.mime, p_id_b64: photo.b64, p_device: deviceId(),
+        p_id_mime: null, p_id_b64: null, p_device: deviceId(),
       })
       store.set('student', s)
       onDone()
@@ -69,7 +70,7 @@ export default function Register({ info, onDone, onCancel }) {
         <div style={{ marginTop: 8 }}>
           <img src={photo.dataUrl} alt="Your ID preview"
                style={{ maxHeight: 160, borderRadius: 6, border: '1px solid var(--line)' }} />
-          <div className="small muted">Ready to upload ({Math.round(photo.bytes / 1024)} KB)</div>
+          <div className="small muted">Attached ({Math.round(photo.bytes / 1024)} KB)</div>
         </div>
       )}
 

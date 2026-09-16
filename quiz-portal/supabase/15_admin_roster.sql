@@ -33,8 +33,7 @@ begin
     select *,
            (roll_no is not null)                           as registered,
            (roll_no is not null
-            and coalesce(btrim(given_name), '') <> ''
-            and has_id)                                    as complete
+            and coalesce(btrim(given_name), '') <> '')     as complete
       from r
   )
   select json_agg(json_build_object(
@@ -68,9 +67,7 @@ begin
                                           'total',    count(*),
                                           'complete', count(*) filter (
                                             where a.claimed_by is not null
-                                              and coalesce(btrim(s.full_name), '') <> ''
-                                              and exists (select 1 from quiz.id_documents d
-                                                           where d.roll_no = a.claimed_by))) as x
+                                              and coalesce(btrim(s.full_name), '') <> '')) as x
                                    from quiz.allowlist a
                                    left join quiz.batches  b on b.id      = a.batch_id
                                    left join quiz.students s on s.roll_no = a.claimed_by
