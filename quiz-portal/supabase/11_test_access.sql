@@ -35,19 +35,20 @@ on conflict (roll_no) do update
   set full_name     = excluded.full_name,
       batch_id      = excluded.batch_id;
 
--- clean slate for those four every time this runs
-update quiz.students set banned = false, banned_reason = null, banned_at = null
- where roll_no in ('30217','68459','15743','82096');
-delete from quiz.attempts   where roll_no in ('30217','68459','15743','82096');
-delete from quiz.detections where roll_no in ('30217','68459','15743','82096');
-delete from quiz.messages   where roll_no in ('30217','68459','15743','82096');
-delete from quiz.threads    where roll_no in ('30217','68459','15743','82096');
-delete from quiz.sessions   where kind = 'student' and subject in ('30217','68459','15743','82096');
-
--- 2b. free the two Gmail addresses so you can redo the Google registration
---     (removes their registration, ID photo and attempt - test accounts only)
-delete from quiz.students
- where email in ('abhyuday.saksena06@gmail.com', 'mr.developer4u@gmail.com');
+-- RESETS ARE OFF: running this file while an exam is live changes nothing that
+-- exists. Uncomment a block only when you deliberately want a clean rehearsal.
+--
+-- update quiz.students set banned = false, banned_reason = null, banned_at = null
+--  where roll_no in ('30217','68459','15743','82096');
+-- delete from quiz.attempts   where roll_no in ('30217','68459','15743','82096');
+-- delete from quiz.detections where roll_no in ('30217','68459','15743','82096');
+-- delete from quiz.messages   where roll_no in ('30217','68459','15743','82096');
+-- delete from quiz.threads    where roll_no in ('30217','68459','15743','82096');
+-- delete from quiz.sessions   where kind = 'student' and subject in ('30217','68459','15743','82096');
+--
+-- free the two Gmail addresses to redo Google registration:
+-- delete from quiz.students
+--  where email in ('abhyuday.saksena06@gmail.com', 'mr.developer4u@gmail.com');
 
 -- 3. five admin logins
 insert into quiz.admins (username, password_hash, display_name)
@@ -60,7 +61,7 @@ values
 on conflict (username) do update
   set display_name  = excluded.display_name;
 
--- clear any lockout from earlier failed attempts
+-- clear any lockout from earlier failed attempts (only failed-login counters)
 delete from quiz.login_failures;
 
 -- =====================================================================

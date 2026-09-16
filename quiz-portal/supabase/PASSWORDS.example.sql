@@ -38,8 +38,13 @@ update quiz.students set password_hash = quiz.hash_password('CHOOSE_A_PASSWORD')
 update quiz.students set password_hash = quiz.hash_password('CHOOSE_A_PASSWORD') where roll_no = '15743';
 update quiz.students set password_hash = quiz.hash_password('CHOOSE_A_PASSWORD') where roll_no = '82096';
 
--- sign everyone out, so any session opened with an old password ends
-update quiz.sessions set revoked = true where not revoked;
+-- End sessions opened with the OLD passwords: staff, and the demo accounts only.
+-- Real students (Google sign-in) are never touched, so a live exam carries on.
+update quiz.sessions set revoked = true
+ where not revoked
+   and (kind = 'admin'
+        or (kind = 'student' and subject in ('58204','41729','60853','27164','39508','72641',
+            '18395','84072','53619','26748','91536','47280','65913','30217','68459','15743','82096')));
 delete from quiz.login_failures;
 
 select 'passwords set' as step, count(*) as staff_logins from quiz.admins;

@@ -211,8 +211,8 @@ begin
     ('dmittal3_be26@thapar.edu', v3, 45, 'Devangi Mittal', '1026060099'),
     ('lhanda_be26@thapar.edu', v3, 46, 'Lavya Handa', '1026250083')
   on conflict (email) do update
-     set batch_id  = excluded.batch_id,
-         serial_no = excluded.serial_no,
+     -- batch_id deliberately NOT updated: a round you have changed by hand stays changed
+     set serial_no = excluded.serial_no,
          full_name = coalesce(excluded.full_name, quiz.allowlist.full_name),
          roll_hint = excluded.roll_hint;
 

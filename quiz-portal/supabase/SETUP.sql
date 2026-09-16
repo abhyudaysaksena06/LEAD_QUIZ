@@ -2161,8 +2161,7 @@ select b.name, b.is_open, b.window_minutes,
 -- LEAD Quiz Portal — 10: sample test students (3 per round, 5-digit roll numbers)
 --
 -- Roll number = username. Passwords are set by PASSWORDS.local.sql, never here.
--- Re-running RESETS them completely (attempts, violations, chats, bans cleared),
--- so you can rehearse a round as many times as you like.
+-- Re-running does NOT reset them (see the commented block below).
 --
 -- DELETE THEM BEFORE THE REAL EXAM:
 --   delete from quiz.students where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
@@ -2195,14 +2194,17 @@ on conflict (roll_no) do update
   set full_name     = excluded.full_name,
       batch_id      = excluded.batch_id;
 
--- full reset so every rehearsal starts clean
-update quiz.students set banned = false, banned_reason = null, banned_at = null
- where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
-delete from quiz.attempts   where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');   -- cascades answers + violations
-delete from quiz.detections where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
-delete from quiz.messages   where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
-delete from quiz.threads    where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
-delete from quiz.sessions   where kind = 'student' and subject in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+-- RESET IS OFF so re-running SETUP.sql during a live exam changes nothing.
+-- Uncomment to wipe the demo accounts for a fresh rehearsal:
+-- -- full reset so every rehearsal starts clean
+-- update quiz.students set banned = false, banned_reason = null, banned_at = null
+--  where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+-- delete from quiz.attempts   where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');   -- cascades answers + violations
+-- delete from quiz.detections where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+-- delete from quiz.messages   where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+-- delete from quiz.threads    where roll_no in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+-- delete from quiz.sessions   where kind = 'student' and subject in ('41729','60853','27164','39508','72641','18395','84072','53619','26748','91536','47280','65913','58204');
+
 
 select s.roll_no as username, b.name as round, s.full_name
   from quiz.students s join quiz.batches b on b.id = s.batch_id
@@ -3826,8 +3828,8 @@ begin
     ('dmittal3_be26@thapar.edu', v3, 45, 'Devangi Mittal', '1026060099'),
     ('lhanda_be26@thapar.edu', v3, 46, 'Lavya Handa', '1026250083')
   on conflict (email) do update
-     set batch_id  = excluded.batch_id,
-         serial_no = excluded.serial_no,
+     -- batch_id deliberately NOT updated: a round you have changed by hand stays changed
+     set serial_no = excluded.serial_no,
          full_name = coalesce(excluded.full_name, quiz.allowlist.full_name),
          roll_hint = excluded.roll_hint;
 
@@ -4201,15 +4203,25 @@ drop trigger if exists attempts_defaults on quiz.attempts;
 create trigger attempts_defaults before insert on quiz.attempts
   for each row execute function quiz.attempt_defaults();
 
--- existing attempts (a rehearsal) keep working
+-- existing attempts keep their budget
 update quiz.attempts a
    set duration_seconds = coalesce(a.duration_seconds,
          (select coalesce(b.duration_minutes, c.duration_minutes) * 60
             from quiz.config c
             left join quiz.students s on s.roll_no = a.roll_no
             left join quiz.batches  b on b.id = s.batch_id
-           where c.id = 1)),
-       last_tick_at = coalesce(a.last_tick_at, a.started_at);
+           where c.id = 1), 1200)
+ where a.duration_seconds is null;
+
+-- Attempts that were ALREADY RUNNING before this timer existed (last_tick_at is
+-- null): bill them for the time they have genuinely used, so nobody writing
+-- right now gets a fresh 20 minutes. Runs once per attempt; re-running is a no-op.
+update quiz.attempts a
+   set elapsed_seconds = least(greatest(extract(epoch from
+                           (coalesce(a.paused_at, a.submitted_at, now()) - a.started_at)), 0),
+                           a.duration_seconds),
+       last_tick_at    = now()
+ where a.last_tick_at is null;
 
 -- ---------------------------------------------------------------------
 -- The tick. Called only from things the STUDENT does, never from the cron

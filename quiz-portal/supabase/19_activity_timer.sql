@@ -54,15 +54,25 @@ drop trigger if exists attempts_defaults on quiz.attempts;
 create trigger attempts_defaults before insert on quiz.attempts
   for each row execute function quiz.attempt_defaults();
 
--- existing attempts (a rehearsal) keep working
+-- existing attempts keep their budget
 update quiz.attempts a
    set duration_seconds = coalesce(a.duration_seconds,
          (select coalesce(b.duration_minutes, c.duration_minutes) * 60
             from quiz.config c
             left join quiz.students s on s.roll_no = a.roll_no
             left join quiz.batches  b on b.id = s.batch_id
-           where c.id = 1)),
-       last_tick_at = coalesce(a.last_tick_at, a.started_at);
+           where c.id = 1), 1200)
+ where a.duration_seconds is null;
+
+-- Attempts that were ALREADY RUNNING before this timer existed (last_tick_at is
+-- null): bill them for the time they have genuinely used, so nobody writing
+-- right now gets a fresh 20 minutes. Runs once per attempt; re-running is a no-op.
+update quiz.attempts a
+   set elapsed_seconds = least(greatest(extract(epoch from
+                           (coalesce(a.paused_at, a.submitted_at, now()) - a.started_at)), 0),
+                           a.duration_seconds),
+       last_tick_at    = now()
+ where a.last_tick_at is null;
 
 -- ---------------------------------------------------------------------
 -- The tick. Called only from things the STUDENT does, never from the cron
