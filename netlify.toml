@@ -1,0 +1,15 @@
+# Netlify config. vercel.json is ignored by Netlify, so the same settings live here.
+[build]
+  base    = "quiz-portal"     # the app is in this subfolder, not the repo root
+  command = "npm run build"
+  publish = "dist"            # relative to base
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Single-page app: send every route (/admin, /exam...) to index.html,
+# otherwise refreshing any page other than / gives a 404.
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
