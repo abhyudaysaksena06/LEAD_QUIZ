@@ -215,3 +215,39 @@ td.mono { font-family: var(--mono); }
 /* the sub-list of things that count as a violation */
 .rules .sub-rules { margin: 6px 0 0 0; padding-left: 18px; list-style: disc; }
 .rules .sub-rules li { margin: 2px 0; font-size: 13px; color: var(--muted, #667); }
+
+/* ---------- scrollbars ----------
+   The default Windows/Chrome scrollbar is a wide grey trough that sits against
+   every panel edge. These make it a thin, quiet overlay instead — still there,
+   still draggable, still showing how far down the page you are, but no longer
+   a chrome-coloured stripe down the side of the exam.
+   Scrolling itself is never disabled: a student must always be able to reach
+   the bottom of a question. */
+* {
+  scrollbar-width: thin;                              /* Firefox */
+  scrollbar-color: rgba(99, 112, 128, .35) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 112, 128, .3);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(99, 112, 128, .55); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+/* the arrow buttons at each end are what make it look like a 2005 widget */
+::-webkit-scrollbar-button { display: none; }
+
+/* On the dark code editor and terminal a grey thumb reads as dirt. */
+.editor textarea, .terminal pre, .code-view, .snippet {
+  scrollbar-color: rgba(215, 226, 238, .28) transparent;
+}
+.editor textarea::-webkit-scrollbar-thumb,
+.terminal pre::-webkit-scrollbar-thumb,
+.code-view::-webkit-scrollbar-thumb,
+.snippet::-webkit-scrollbar-thumb {
+  background: rgba(215, 226, 238, .25);
+  background-clip: content-box;
+}
