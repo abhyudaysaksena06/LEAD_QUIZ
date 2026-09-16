@@ -853,7 +853,7 @@ begin
 end $$;
 
 -- ---------- students: bulk add / update ----------
--- p_rows: [{"roll_no":"1025030923","password":"JAILEAD","full_name":"Name"}, ...]
+-- p_rows: [{"roll_no":"1025030923","password":"<password>","full_name":"Name"}, ...]
 drop function if exists public.admin_upsert_students(uuid, jsonb);
 create or replace function public.admin_upsert_students(p_token uuid, p_rows jsonb,
                                                         p_batch_id int default null)

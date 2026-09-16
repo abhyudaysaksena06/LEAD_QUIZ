@@ -25,3 +25,7 @@ dist-ssr
 
 # local secrets
 .env
+
+# real passwords - local only
+*.local.sql
+*.local.txt

@@ -1937,7 +1937,7 @@ begin
 end $$;
 
 -- ---------- students: bulk add / update ----------
--- p_rows: [{"roll_no":"1025030923","password":"JAILEAD","full_name":"Name"}, ...]
+-- p_rows: [{"roll_no":"1025030923","password":"<password>","full_name":"Name"}, ...]
 drop function if exists public.admin_upsert_students(uuid, jsonb);
 create or replace function public.admin_upsert_students(p_token uuid, p_rows jsonb,
                                                         p_batch_id int default null)
@@ -2014,8 +2014,7 @@ end $$;
 
 -- =====================================================================
 -- LEAD Quiz Portal — 04: seed data
---   * test student   1025030923 / JAILEAD
---   * admin          admin / LEADADMIN        <-- CHANGE THIS before exam day
+--   * test student 58204 and the 'admin' login (passwords: PASSWORDS.local.sql)
 --   * placeholder question bank: 40 MCQ + 8 coding
 --     (each student randomly gets 17 MCQ + 3 coding from this pool)
 -- Safe to re-run.
@@ -2026,12 +2025,12 @@ end $$;
 delete from quiz.students where roll_no = '1025030923';   -- retired earlier placeholder
 
 insert into quiz.students (roll_no, password_hash, full_name)
-values ('58204', quiz.hash_password('JAILEAD'), 'Seed Test Student')
-on conflict (roll_no) do update set password_hash = excluded.password_hash;
+values ('58204', quiz.hash_password(gen_random_uuid()::text), 'Seed Test Student')
+on conflict (roll_no) do nothing;   -- never overwrite a password you have set
 
 insert into quiz.admins (username, password_hash, display_name)
-values ('admin', quiz.hash_password('LEADADMIN'), 'Admin')
-on conflict (username) do update set password_hash = excluded.password_hash;
+values ('admin', quiz.hash_password(gen_random_uuid()::text), 'Admin')
+on conflict (username) do nothing;  -- never overwrite a password you have set
 
 -- ---------- placeholder questions (only inserted if the bank is empty) ----------
 do $$
@@ -2077,31 +2076,29 @@ select q.id, v.ord, v.stdin, v.expected, v.sample, 1
 
 -- =====================================================================
 -- LEAD Quiz Portal — 08: five proctor logins
---   proctor1..proctor5, all with the password JAILEAD.
---   CHANGE THESE BEFORE THE EXAM - see the line at the bottom of this file.
+--   proctor1..proctor5. No password is set here: run PASSWORDS.local.sql.
 --
 -- Creates one login per proctor station. Student chat queries are shared
 -- automatically between whichever of these are signed in and active.
 --
--- CHANGE THESE PASSWORDS before exam day. Safe to re-run (it resets them).
+-- Safe to re-run: existing passwords are never overwritten.
 -- =====================================================================
 
 insert into quiz.admins (username, password_hash, display_name) values
-  ('proctor1', quiz.hash_password('JAILEAD'), 'Proctor 1'),
-  ('proctor2', quiz.hash_password('JAILEAD'), 'Proctor 2'),
-  ('proctor3', quiz.hash_password('JAILEAD'), 'Proctor 3'),
-  ('proctor4', quiz.hash_password('JAILEAD'), 'Proctor 4'),
-  ('proctor5', quiz.hash_password('JAILEAD'), 'Proctor 5')
+  ('proctor1', quiz.hash_password(gen_random_uuid()::text), 'Proctor 1'),
+  ('proctor2', quiz.hash_password(gen_random_uuid()::text), 'Proctor 2'),
+  ('proctor3', quiz.hash_password(gen_random_uuid()::text), 'Proctor 3'),
+  ('proctor4', quiz.hash_password(gen_random_uuid()::text), 'Proctor 4'),
+  ('proctor5', quiz.hash_password(gen_random_uuid()::text), 'Proctor 5')
 on conflict (username) do update
-  set password_hash = excluded.password_hash,
-      display_name  = excluded.display_name;
+  set display_name = excluded.display_name;
 
 -- change one password later:
 -- update quiz.admins set password_hash = quiz.hash_password('NEW-PASSWORD') where username = 'proctor3';
 
 -- add a sixth station:
 -- insert into quiz.admins (username, password_hash, display_name)
--- values ('proctor6', quiz.hash_password('...'), 'Proctor 6');
+-- values ('proctor6', quiz.hash_password('<choose one>'), 'Proctor 6');
 
 select username, display_name, last_seen_at from quiz.admins order by username;
 
@@ -2163,7 +2160,7 @@ select b.name, b.is_open, b.window_minutes,
 -- =====================================================================
 -- LEAD Quiz Portal — 10: sample test students (3 per round, 5-digit roll numbers)
 --
--- Roll number = username. Run AFTER 09_rounds.sql.
+-- Roll number = username. Passwords are set by PASSWORDS.local.sql, never here.
 -- Re-running RESETS them completely (attempts, violations, chats, bans cleared),
 -- so you can rehearse a round as many times as you like.
 --
@@ -2175,28 +2172,27 @@ select b.name, b.is_open, b.window_minutes,
 delete from quiz.students where roll_no like 'TESTB%' or roll_no like 'TEST%' or roll_no = '1025030923';
 
 insert into quiz.students (roll_no, password_hash, full_name, batch_id)
-select v.roll, quiz.hash_password(v.pass), v.name, b.id
+select v.roll, quiz.hash_password(gen_random_uuid()::text), v.name, b.id
 from (values
-  ('41729', 'JAILEAD', 'Tester A - Round 1', 'Round 1'),
-  ('60853', 'JAILEAD', 'Tester B - Round 1', 'Round 1'),
-  ('27164', 'JAILEAD', 'Tester C - Round 1', 'Round 1'),
+  ('41729', 'Tester A - Round 1', 'Round 1'),
+  ('60853', 'Tester B - Round 1', 'Round 1'),
+  ('27164', 'Tester C - Round 1', 'Round 1'),
 
-  ('39508', 'JAILEAD', 'Tester A - Round 2', 'Round 2'),
-  ('72641', 'JAILEAD', 'Tester B - Round 2', 'Round 2'),
-  ('18395', 'JAILEAD', 'Tester C - Round 2', 'Round 2'),
+  ('39508', 'Tester A - Round 2', 'Round 2'),
+  ('72641', 'Tester B - Round 2', 'Round 2'),
+  ('18395', 'Tester C - Round 2', 'Round 2'),
 
-  ('84072', 'JAILEAD', 'Tester A - Round 3', 'Round 3'),
-  ('53619', 'JAILEAD', 'Tester B - Round 3', 'Round 3'),
-  ('26748', 'JAILEAD', 'Tester C - Round 3', 'Round 3'),
+  ('84072', 'Tester A - Round 3', 'Round 3'),
+  ('53619', 'Tester B - Round 3', 'Round 3'),
+  ('26748', 'Tester C - Round 3', 'Round 3'),
 
-  ('91536', 'JAILEAD', 'Tester A - Backup', 'Round 4 (Backup)'),
-  ('47280', 'JAILEAD', 'Tester B - Backup', 'Round 4 (Backup)'),
-  ('65913', 'JAILEAD', 'Tester C - Backup', 'Round 4 (Backup)')
-) as v(roll, pass, name, batch_name)
+  ('91536', 'Tester A - Backup', 'Round 4 (Backup)'),
+  ('47280', 'Tester B - Backup', 'Round 4 (Backup)'),
+  ('65913', 'Tester C - Backup', 'Round 4 (Backup)')
+) as v(roll, name, batch_name)
 join quiz.batches b on b.name = v.batch_name
 on conflict (roll_no) do update
-  set password_hash = excluded.password_hash,
-      full_name     = excluded.full_name,
+  set full_name     = excluded.full_name,
       batch_id      = excluded.batch_id;
 
 -- full reset so every rehearsal starts clean

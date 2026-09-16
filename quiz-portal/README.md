@@ -24,10 +24,9 @@ the tables live in a private schema the browser cannot reach, and answer keys ne
 
    All files are safe to re-run.
 
-3. **Change the admin password** (default is `admin` / `LEADADMIN`):
-   ```sql
-   update quiz.admins set password_hash = quiz.hash_password('YOUR-STRONG-PASSWORD') where username = 'admin';
-   ```
+3. **Set the passwords.** No file in this repository contains a password: accounts are
+   created locked. Copy `supabase/PASSWORDS.example.sql` to `supabase/PASSWORDS.local.sql`
+   (gitignored), choose passwords, and run it. Never commit that file.
 
 ## 2. Run the app
 
@@ -39,8 +38,8 @@ npm run dev               # http://localhost:5173
 
 | Page | URL | Login |
 |---|---|---|
-| Student | `/` | `1025030923` / `JAILEAD` |
-| Admin | `/admin/login` | `admin` / `LEADADMIN` |
+| Student | `/` | Google sign-in (allowlisted email) |
+| Admin | `/admin/login` | username + password from your `PASSWORDS.local.sql` |
 
 **Deploy:** `npm run build` and host `dist/` (Vercel / Netlify). `vercel.json` is included so
 `/admin` and `/exam` work on refresh. Set the two `VITE_` env vars in the host's dashboard.
@@ -89,7 +88,7 @@ and still only gets **one attempt**.
   within 10 seconds of you starting their batch — they don't need to refresh.
 
 To rehearse, run `supabase/06_test_batches.sql`: it creates Batch 1–8 (all closed) with one test
-student each — `1025030923`, then `TESTB2` … `TESTB8`, password `JAILEAD` for all. Re-running it
+student each; passwords come from `PASSWORDS.local.sql`. Re-running it
 clears their attempts so you can practise repeatedly. Remove them before the real exam:
 
 ```sql
@@ -99,7 +98,7 @@ delete from quiz.students where roll_no like 'TESTB%';
 ## 3c. Proctor logins and how chat load is shared
 
 Run `supabase/08_proctors.sql` to create five logins: `proctor1` … `proctor5`
-(passwords `LEAD-P1-2026` … `LEAD-P5-2026` — **change them**). The original `admin`
+(passwords set in `PASSWORDS.local.sql`). The original `admin`
 login still works and behaves the same way.
 
 When a student sends their first message, the thread is **assigned to the signed-in

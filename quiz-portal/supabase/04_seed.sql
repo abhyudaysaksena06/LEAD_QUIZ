@@ -1,7 +1,6 @@
 -- =====================================================================
 -- LEAD Quiz Portal — 04: seed data
---   * test student   1025030923 / JAILEAD
---   * admin          admin / LEADADMIN        <-- CHANGE THIS before exam day
+--   * test student 58204 and the 'admin' login (passwords: PASSWORDS.local.sql)
 --   * placeholder question bank: 40 MCQ + 8 coding
 --     (each student randomly gets 17 MCQ + 3 coding from this pool)
 -- Safe to re-run.
@@ -12,12 +11,12 @@
 delete from quiz.students where roll_no = '1025030923';   -- retired earlier placeholder
 
 insert into quiz.students (roll_no, password_hash, full_name)
-values ('58204', quiz.hash_password('JAILEAD'), 'Seed Test Student')
-on conflict (roll_no) do update set password_hash = excluded.password_hash;
+values ('58204', quiz.hash_password(gen_random_uuid()::text), 'Seed Test Student')
+on conflict (roll_no) do nothing;   -- never overwrite a password you have set
 
 insert into quiz.admins (username, password_hash, display_name)
-values ('admin', quiz.hash_password('LEADADMIN'), 'Admin')
-on conflict (username) do update set password_hash = excluded.password_hash;
+values ('admin', quiz.hash_password(gen_random_uuid()::text), 'Admin')
+on conflict (username) do nothing;  -- never overwrite a password you have set
 
 -- ---------- placeholder questions (only inserted if the bank is empty) ----------
 do $$

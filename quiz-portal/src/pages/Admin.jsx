@@ -147,7 +147,7 @@ function StudentsTab({ token, batches, onChanged }) {
       </select>
       <p className="small muted">Existing students listed here are <b>moved</b> into this batch.</p>
       <textarea rows={12} value={text} onChange={e => setText(e.target.value)}
-                placeholder={'1025030923,JAILEAD,Test Student\n1025030924,PASS1234,Another Student'}
+                placeholder={'ROLL_NO,PASSWORD,Full Name'}
                 style={{ fontFamily: 'var(--mono)', fontSize: 13 }} />
       {msg && <p className="small" style={{ marginTop: 8 }}>{msg}</p>}
       <button style={{ marginTop: 10 }} disabled={busy || !text.trim()}>{busy ? 'Saving…' : 'Save students'}</button>

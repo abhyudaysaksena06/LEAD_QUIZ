@@ -9,8 +9,8 @@ insert into quiz.students (roll_no, password_hash, full_name)
 select roll_no, quiz.hash_password(password), full_name
 from (values
   -- ('roll_no',     'password', 'Full Name')
-  ('1025030923', 'JAILEAD',  'Test Student')
-  -- ,('1025030924', 'PASS1234', 'Another Student')
+  ('ROLL_NO', 'CHOOSE_A_PASSWORD', 'Full Name')
+  -- ,('ROLL_NO_2', 'CHOOSE_A_PASSWORD', 'Another Student')
 ) as t(roll_no, password, full_name)
 on conflict (roll_no) do update
   set password_hash = excluded.password_hash,
