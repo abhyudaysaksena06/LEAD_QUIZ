@@ -5,7 +5,7 @@
   publish = "dist"            # relative to base
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"   # Vite 8 needs Node 20.19+ or 22.12+
 
 # Single-page app: send every route (/admin, /exam...) to index.html,
 # otherwise refreshing any page other than / gives a 404.
