@@ -4,6 +4,7 @@ import { rpc, store } from '../lib/api'
 import { firebaseConfigured, signInWithGoogle, firebaseSignOut } from '../lib/firebase'
 import { deviceId } from '../lib/device'
 import Register from './Register'
+import { SplitPage, useExamInfo } from '../components/Instructions'
 
 function GoogleMark() {
   return (
@@ -24,6 +25,7 @@ export default function StudentLogin() {
   const [busy, setBusy] = useState(false)
   const [reg, setReg] = useState(null)
   const [showPassword, setShowPassword] = useState(!firebaseConfigured)
+  const info = useExamInfo()
 
   async function google() {
     setError(''); setBusy(true)
@@ -58,13 +60,13 @@ export default function StudentLogin() {
   }
 
   if (reg) return (
-    <div className="center-page">
+    <SplitPage cfg={info}>
       <Register info={reg} onDone={() => nav('/exam')} onCancel={() => setReg(null)} />
-    </div>
+    </SplitPage>
   )
 
   return (
-    <div className="center-page">
+    <SplitPage cfg={info}>
       <div className="card narrow">
         <div className="brand-mark">LEAD Quiz</div>
         <h1>Student sign in</h1>
@@ -120,6 +122,6 @@ export default function StudentLogin() {
           Taking the open quiz? <Link to="/public">Public quiz</Link> · Proctor? <Link to="/admin/login">Admin portal</Link>
         </p>
       </div>
-    </div>
+    </SplitPage>
   )
 }

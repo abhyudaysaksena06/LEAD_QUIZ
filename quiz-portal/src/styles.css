@@ -260,3 +260,22 @@ td.mono { font-family: var(--mono); }
   display: grid; place-items: center; overflow: hidden; }
 .live-frame img { width: 100%; height: 100%; object-fit: contain; transition: opacity .2s; }
 .live-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+
+/* ---------- sign-in and start screens: instructions left, action right ---------- */
+.split-page { min-height: 100%; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr);
+  gap: 20px; align-items: start; max-width: 1180px; margin: 0 auto; padding-block: 28px; padding-inline: 24px; }
+.split-left { max-height: calc(100vh - 56px); overflow-y: auto; }
+.split-right { position: sticky; top: 28px; }
+.split-right .card, .split-right .card.narrow { width: 100%; }
+.details { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 10px 0 14px; }
+.details dt { color: var(--muted); font-size: 12.5px; padding-top: 1px; }
+.details dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.status-box { border-radius: 8px; padding: 10px 12px; font-size: 13.5px; }
+.status-box.ok { background: var(--ok-soft); color: var(--ok); border: 1px solid #bfe3cc; }
+.status-box.wait { background: var(--warn-soft); color: #7a4a00; border: 1px solid #f1d7a6; }
+.status-box .countdown { font-size: 15px; margin-bottom: 4px; color: var(--ink); }
+@media (max-width: 860px) {
+  .split-page { grid-template-columns: 1fr; padding-inline: 16px; }
+  .split-right { position: static; order: -1; }   /* sign-in first on a phone, instructions below */
+  .split-left { max-height: none; }
+}

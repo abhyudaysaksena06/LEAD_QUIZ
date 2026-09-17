@@ -4,6 +4,7 @@ import { rpc, store } from '../lib/api'
 import { firebaseConfigured, signInWithGoogle, firebaseSignOut } from '../lib/firebase'
 import { deviceId } from '../lib/device'
 import Register from './Register'
+import { SplitPage, useExamInfo } from '../components/Instructions'
 
 /** The open quiz. No registration list: any Google account whose address contains
  *  "be26" or "btech26" may sign up. The server enforces the rule, not this page. */
@@ -12,6 +13,7 @@ export default function PublicQuiz() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [reg, setReg] = useState(null)
+  const info = useExamInfo()
 
   function enter(session) {
     store.set('entry', 'public')          // so sign-out returns here, not to the recruitment page
@@ -36,15 +38,15 @@ export default function PublicQuiz() {
   }
 
   if (reg) return (
-    <div className="center-page">
+    <SplitPage cfg={info}>
       <Register info={reg} mode="public"
                 onDone={() => { store.set('entry', 'public'); nav('/exam') }}
                 onCancel={() => setReg(null)} />
-    </div>
+    </SplitPage>
   )
 
   return (
-    <div className="center-page">
+    <SplitPage cfg={info}>
       <div className="card narrow">
         <div className="brand-mark">LEAD Quiz</div>
         <h1>Public quiz</h1>
@@ -73,6 +75,6 @@ export default function PublicQuiz() {
           Selected for the LEAD recruitment round? <Link to="/">Use the recruitment page</Link>
         </p>
       </div>
-    </div>
+    </SplitPage>
   )
 }

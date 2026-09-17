@@ -9,6 +9,7 @@ import { deviceId } from '../lib/device'
 import CodeWorkspace from '../components/CodeWorkspace'
 import ChatBox from '../components/ChatBox'
 import ConsentForm, { CONSENT_VERSION } from '../components/ConsentForm'
+import { SplitPage } from '../components/Instructions'
 
 const LETTERS = 'ABCDEFGHIJ'
 const entryPath = () => (store.get('entry') === 'public' ? '/public' : '/')
@@ -354,8 +355,8 @@ export default function Exam() {
 
   // ---------- countdown ----------
   useEffect(() => {
-    if (phase !== 'exam') return
-    const t = setInterval(() => setNow(Date.now()), 500)
+    if (phase !== 'exam' && phase !== 'instructions') return
+    const t = setInterval(() => setNow(Date.now()), phase === 'exam' ? 500 : 1000)
     return () => clearInterval(t)
   }, [phase])
 
@@ -469,74 +470,52 @@ export default function Exam() {
     </div></div>
   )
 
-  if (phase === 'instructions') return (
-    <div className="center-page">
-      <div className="card wide">
+  if (phase === 'instructions') {
+    const who = store.get('student') || {}
+    const when = exam?.batch ? roundWhen(exam.batch.starts_at) : null
+    const startsIn = exam?.batch?.starts_at ? new Date(exam.batch.starts_at) - (now + offset) : null
+    const waiting = !exam?.batch
+      ? 'You have not been assigned to a round yet. Please contact a proctor.'
+      : !cfg?.exam_open
+        ? 'The exam is not open yet. Wait for the proctor’s signal.'
+        : `${exam.batch.name} has not been started yet. This page unlocks by itself when a proctor starts your round — keep it open.`
+    return (
+    <>
+    <SplitPage cfg={cfg} minutes={exam?.batch?.duration_minutes ?? cfg?.duration_minutes}>
+      <div className="card">
         <div className="brand-mark">{cfg?.exam_title}</div>
-        <h1>Before you begin</h1>
-        <p>
-          Signed in as <b>{roll}</b>{exam?.student?.full_name ? ` · ${exam.student.full_name}` : ''}
-          {exam?.batch && <span className="badge" style={{ marginLeft: 8 }}>{exam.batch.name}</span>}
-        </p>
-        {exam?.batch && roundWhen(exam.batch.starts_at) && (
-          <p className="round-when">
-            <b>{exam.batch.name}</b> · {roundWhen(exam.batch.starts_at).date}
-            {' · '}<b>{roundWhen(exam.batch.starts_at).time}</b>
-            <span className="muted"> (IST)</span>
-          </p>
-        )}
-        <ul className="rules">
-          <li><b>{cfg?.mcq_count + cfg?.coding_count} questions</b>: {cfg?.mcq_count} multiple choice
-            {cfg?.coding_count > 0 && <> and {cfg?.coding_count} coding</>}.</li>
-          <li><b>There is no negative marking.</b> A wrong answer costs you nothing, so never leave a
-            multiple-choice question blank — answer every one.</li>
-          {cfg?.coding_count > 0 && (
-            <li>The <b>{cfg.coding_count} coding questions are optional and carry no marks</b>. They are
-              read by the panel and given written remarks, so attempt them if you have time — they can
-              only help you. Answer in Python, JavaScript, C, C++ or Java; Python and JavaScript run in
-              the editor, the rest are saved for the examiners to read.</li>
+        <h2>Your details</h2>
+        <dl className="details">
+          <dt>Name</dt><dd>{exam?.student?.full_name || who.full_name || '—'}</dd>
+          <dt>Roll number</dt><dd className="mono">{roll || '—'}</dd>
+          {who.email && <><dt>Email</dt><dd className="mono small">{who.email}</dd></>}
+          <dt>Round</dt><dd>{exam?.batch?.name || '—'}</dd>
+          {when && <><dt>Scheduled</dt><dd>{when.date} · <b>{when.time}</b> <span className="muted">IST</span></dd></>}
+        </dl>
+
+        {exam?.can_start
+          ? <div className="status-box ok">Your round is open. Read the instructions, then start when you are ready.</div>
+          : (
+            <div className="status-box wait">
+              {startsIn != null && startsIn > 0 && cfg?.exam_open && (
+                <div className="countdown">Starts in <b className="mono">{fmtClock(startsIn)}</b></div>
+              )}
+              {waiting}
+            </div>
           )}
-          <li><b>Your own {exam?.batch?.duration_minutes ?? cfg?.duration_minutes}-minute timer</b> starts when you press Start.
-            It counts only while you are connected — if your internet or power fails, the clock stops until you are back.
-            It cannot run past the end of your round.</li>
-          <li>The test runs in <b>fullscreen</b>. These count as a violation:
-            <ul className="sub-rules">
-              <li>Leaving fullscreen, including by holding <b>Esc</b></li>
-              <li>Switching to another tab, window or application</li>
-              <li>Minimising the window or clicking away from the test</li>
-              <li>Pressing <b>Print Screen</b> or trying to take a screenshot</li>
-              <li>Pasting anything into the editor from outside the test</li>
-              <li>Opening developer tools</li>
-            </ul>
-          </li>
-          <li><b>{cfg?.max_flags} violations</b> and your test is submitted automatically. Your answers
-            up to that point are kept and marked.</li>
-          {cfg?.require_camera && <li><b>Your camera must stay on</b> and is monitored during the test. Keep your face visible, sit alone, and keep your phone out of sight.</li>}
-          {cfg?.require_mic && <li><b>Microphone access is required</b> for the duration of the test. Your browser will ask for permission when you press Start.</li>}
-          <li>Answers save automatically. Don’t refresh or close the browser.</li>
-          <li>Problem during the test? Use the <b>💬 Help</b> button to message a proctor — that is the
-            fastest route and it reaches whoever is free. If your issue is serious and is
-            <b> not resolved on chat</b>, call <b><a href={`tel:+91${HELPLINE}`}>{HELPLINE}</a></b>.</li>
-        </ul>
-        {!exam?.can_start && (
-          <div className="error">
-            {!exam?.batch
-              ? 'You have not been assigned to a batch yet. Please contact a proctor.'
-              : !cfg?.exam_open
-                ? 'The exam is not open yet. Wait for the proctor’s signal.'
-                : roundWhen(exam.batch.starts_at)
-                  ? `${exam.batch.name} begins at ${roundWhen(exam.batch.starts_at).time} IST on ${roundWhen(exam.batch.starts_at).date}. This page unlocks by itself when a proctor starts your round — keep it open.`
-                  : `${exam.batch.name} has not been started yet. This page will unlock automatically when a proctor starts your batch.`}
-          </div>
-        )}
         {error && <div className="error">{error}</div>}
-        <div className="row">
-          <button className="lg" onClick={() => start()} disabled={busy || !exam?.can_start}>{busy ? 'Starting…' : 'Start test in fullscreen'}</button>
-          {!exam?.can_start && <button className="ghost" onClick={load}>Refresh</button>}
+
+        <button className="lg" style={{ width: '100%', marginTop: 12 }}
+                onClick={() => start()} disabled={busy || !exam?.can_start}>
+          {busy ? 'Starting…' : exam?.can_start ? 'Start test in fullscreen' : 'Start (waiting for your round)'}
+        </button>
+        <div className="row" style={{ marginTop: 10 }}>
+          {!exam?.can_start && <button className="ghost sm" onClick={load}>Refresh</button>}
           <span className="spacer" />
-          <button className="ghost" onClick={signOut}>Sign out</button>
+          <button className="ghost sm" onClick={signOut}>Sign out</button>
         </div>
       </div>
+    </SplitPage>
       {showConsent && (
         <ConsentForm
           examTitle={cfg?.exam_title} roll={roll} name={exam?.student?.full_name}
@@ -546,8 +525,10 @@ export default function Exam() {
         />
       )}
       {chat}
-    </div>
-  )
+    </>
+    )
+  }
+
 
   if (phase === 'submitted') return (
     <div className="center-page"><div className="card narrow" style={{ textAlign: 'center' }}>
