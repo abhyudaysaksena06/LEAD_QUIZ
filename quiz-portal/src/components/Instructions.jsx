@@ -30,7 +30,7 @@ export default function Instructions({ cfg, minutes }) {
       <p className="muted">Read these before you begin. They apply from the moment you press Start.</p>
       <ul className="rules">
         <li><b>Sign in with your official Thapar email</b> (your @thapar.edu Google account).</li>
-        <li><b>Use a laptop or desktop computer.</b> The test does not work on a phone or tablet.</li>
+        <li><b>Use a laptop</b> (preferably).</li>
         <li><b>{mcq + coding} questions</b>: {mcq} multiple choice
           {coding > 0 && <> and {coding} coding</>}.</li>
         <li><b>There is no negative marking.</b> A wrong answer costs you nothing, so never leave a
