@@ -369,7 +369,7 @@ export default function Admin() {
           {tab === 'chat' && <Inbox token={token} students={students} me={data.me} admins={data.admins || []}
                                     onOpenStudent={setOpenRoll} onChanged={refresh} />}
           {tab === 'students' && <>
-            <Roster token={token} onOpen={setOpenRoll} />
+            <Roster token={token} onOpen={setOpenRoll} batches={batches} />
             <details style={{ marginTop: 18 }}>
               <summary className="small muted" style={{ cursor: 'pointer' }}>
                 Add students with a roll number and password (not needed — students sign in with Google)

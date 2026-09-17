@@ -25,7 +25,7 @@ function Steps({ s }) {
   )
 }
 
-export default function Roster({ token, onOpen }) {
+export default function Roster({ token, onOpen, batches = [] }) {
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
   const [filter, setFilter] = useState('all')
@@ -46,8 +46,10 @@ export default function Roster({ token, onOpen }) {
 
   const students = data?.students || []
   const sum = data?.summary || {}
+  // every round, including ones nobody has joined yet (e.g. Open Quiz before sign-ups)
   const rounds = useMemo(
-    () => [...new Set(students.map(s => s.round_name || 'Unassigned'))].sort(), [students])
+    () => [...new Set([...batches.map(b => b.name), ...students.map(s => s.round_name || 'Unassigned')])].sort(),
+    [students, batches])
 
   const rows = useMemo(() => students.filter(s => {
     if (round !== 'all' && (s.round_name || 'Unassigned') !== round) return false
