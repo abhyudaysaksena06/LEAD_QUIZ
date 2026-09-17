@@ -101,7 +101,8 @@ export default function PublicQuiz() {
           Your camera and microphone are required during the quiz.
         </p>
         <p className="small muted" style={{ textAlign: 'center' }}>
-          Selected for the LEAD recruitment round? <Link to="/recruitment">Use the recruitment page</Link>
+          Already took the LEAD recruitment round? You can still take this quiz — sign in above.
+          For the recruitment round itself, <Link to="/recruitment">use the recruitment page</Link>.
         </p>
       </div>
     </SplitPage>
