@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { rpc } from '../../lib/api'
 import ChatBox from '../ChatBox'
 import { StatusBadge, fmtLeft, fmtTime } from './util'
@@ -128,6 +128,8 @@ function Row({ s, offset, token, onChanged, onOpen, onWatch, me }) {
 
 export default function StudentLive({ token, onOpen, onWatch, batches = [] }) {
   const [data, setData] = useState(null)
+  const dataRef = useRef(null)
+  useEffect(() => { dataRef.current = data }, [data])
   const [offset, setOffset] = useState(0)
   const [filter, setFilter] = useState('attention')
   const [round, setRound] = useState('')   // '' = every round
@@ -144,7 +146,15 @@ export default function StudentLive({ token, onOpen, onWatch, batches = [] }) {
 
   useEffect(() => {
     load()
-    const t = setInterval(load, 5000)
+    // with hundreds of students each refresh is a large download: 5s for small lists, 10s for big ones
+    let last = 0
+    const t = setInterval(() => {
+      if (document.hidden) return
+      const big = (dataRef.current?.students?.length || 0) > 150
+      if (Date.now() - last < (big ? 10000 : 5000)) return
+      last = Date.now()
+      load()
+    }, 1000)
     const c = setInterval(() => tick(x => x + 1), 1000)
     return () => { clearInterval(t); clearInterval(c) }
   }, [load])

@@ -8,6 +8,7 @@ import Submissions from '../components/admin/Submissions'
 import Registrations from '../components/admin/Registrations'
 import Roster from '../components/admin/Roster'
 import LiveView from '../components/admin/LiveView'
+import OpenQuiz from '../components/admin/OpenQuiz'
 import StudentLive from '../components/admin/StudentLive'
 import CameraReview from '../components/admin/CameraReview'
 import { fmtLeft, fmtTime, REASON_LABEL, StatusBadge } from '../components/admin/util'
@@ -350,7 +351,7 @@ export default function Admin() {
           ['camera', `Camera review${cameraQueue ? ` (${cameraQueue})` : ''}`], ['dashboard', 'Dashboard'],
           ['batches', 'Rounds'], ['registrations', 'Registrations'],
           ['submissions', 'Submissions'], ['chat', `Chat${unread ? ` (${unread})` : ''}`],
-          ['students', 'Students'], ['questions', 'Question bank'], ['settings', 'Settings']].map(([id, label]) => (
+          ['students', 'Students'], ['openquiz', 'Open quiz'], ['questions', 'Question bank'], ['settings', 'Settings']].map(([id, label]) => (
           <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>
         ))}
       </nav>
@@ -368,6 +369,7 @@ export default function Admin() {
           {tab === 'submissions' && <Submissions token={token} students={students} onOpen={setOpenRoll} onChanged={refresh} />}
           {tab === 'chat' && <Inbox token={token} students={students} me={data.me} admins={data.admins || []}
                                     onOpenStudent={setOpenRoll} onChanged={refresh} />}
+          {tab === 'openquiz' && <OpenQuiz token={token} onOpen={setOpenRoll} />}
           {tab === 'students' && <>
             <Roster token={token} onOpen={setOpenRoll} batches={batches} />
             <details style={{ marginTop: 18 }}>

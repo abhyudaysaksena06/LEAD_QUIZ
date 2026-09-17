@@ -42,6 +42,7 @@ const FRIENDLY = {
   PUBLIC_QUIZ_CLOSED: 'Registration for the open quiz is closed.',
   USE_MAIN_PAGE: 'You are registered for the LEAD recruitment round. Please sign in on the recruitment page instead.',
   NO_SUCH_STUDENT: 'That student no longer exists.',
+  PHONE_REQUIRED: 'Please enter a valid 10-digit mobile number. If you do not see a phone box, refresh the page.',
   NAME_REQUIRED: 'Please enter your full name.',
   ID_REQUIRED: 'Please attach a photo of your ID.',
   ALREADY_SUBMITTED: 'This test has already been submitted.',

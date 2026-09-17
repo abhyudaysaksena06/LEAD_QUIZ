@@ -8,6 +8,7 @@ import { deviceId } from '../lib/device'
 export default function Register({ info, onDone, onCancel, mode = 'recruitment' }) {
   const [name, setName] = useState(info.full_name || '')
   const [roll, setRoll] = useState(info.roll_hint || '')
+  const [phone, setPhone] = useState('')
   const [photo, setPhoto] = useState(null)      // { b64, dataUrl, bytes, mime }
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -25,11 +26,14 @@ export default function Register({ info, onDone, onCancel, mode = 'recruitment' 
   async function submit(e) {
     e.preventDefault()
     if (!photo) { setError('Please attach a photo of your ID.'); return }
+    if (mode === 'public' && !/^(\+?91[-\s]?|0)?[6-9]\d{9}$/.test(phone.replace(/[\s-]/g, ''))) {
+      setError('Please enter a valid 10-digit mobile number.'); return
+    }
     setError(''); setBusy(true)
     try {
       const s = mode === 'public'
         ? await rpc('public_quiz_register', {
-            p_roll: roll.trim(), p_full_name: name.trim(), p_device: deviceId(),
+            p_roll: roll.trim(), p_full_name: name.trim(), p_device: deviceId(), p_phone: phone.trim(),
           })
         : await rpc('student_register', {
             p_roll: roll.trim(), p_full_name: name.trim(),
@@ -65,6 +69,14 @@ export default function Register({ info, onDone, onCancel, mode = 'recruitment' 
       <label htmlFor="rl">Roll number</label>
       <input id="rl" value={roll} onChange={e => setRoll(e.target.value)} required
              placeholder="e.g. 1025030923" />
+
+      {mode === 'public' && (
+        <>
+          <label htmlFor="ph">Mobile number</label>
+          <input id="ph" type="tel" inputMode="tel" autoComplete="tel" required value={phone}
+                 onChange={e => setPhone(e.target.value)} placeholder="10-digit mobile number" />
+        </>
+      )}
 
       <label htmlFor="id">Photo of your ID card</label>
       <input id="id" type="file" accept="image/*" capture="environment" onChange={pick} />
