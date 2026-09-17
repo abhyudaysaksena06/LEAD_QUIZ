@@ -30,6 +30,7 @@ export default function StudentLogin() {
     try {
       await signInWithGoogle()
       const r = await rpc('student_login_google', { p_device: deviceId() })
+      store.set('entry', 'main')
       if (r.needs_registration) { setReg(r); return }   // first time: collect name/roll/ID
       store.set('student', r)
       nav('/exam')
@@ -116,7 +117,7 @@ export default function StudentLogin() {
         )}
 
         <p className="small muted" style={{ marginTop: 16, textAlign: 'center' }}>
-          Proctor? <Link to="/admin/login">Admin portal</Link>
+          Taking the open quiz? <Link to="/public">Public quiz</Link> · Proctor? <Link to="/admin/login">Admin portal</Link>
         </p>
       </div>
     </div>

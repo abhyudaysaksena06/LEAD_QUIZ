@@ -28,17 +28,17 @@ update quiz.students s
    set batch_id = (select id from quiz.batches where name = 'Round 4 (Backup)')
  where s.batch_id is not null
    and s.batch_id not in (select id from quiz.batches
-                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)'));
+                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)','Public Quiz'));
 
 update quiz.allowlist a
    set batch_id = (select id from quiz.batches where name = 'Round 4 (Backup)')
  where a.batch_id is not null
    and a.batch_id not in (select id from quiz.batches
-                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)'));
+                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)','Public Quiz'));
 
 -- 3. remove every other batch (now guaranteed empty)
 delete from quiz.batches
- where name not in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)');
+ where name not in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)', 'Public Quiz');
 
 -- 4. confirm: this must show exactly four rows
 select b.name, b.is_open, b.window_minutes,

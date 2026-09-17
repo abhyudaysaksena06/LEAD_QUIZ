@@ -61,7 +61,8 @@ update quiz.config
  where id = 1;
 
 -- null duration on the round = use the 20 minutes from config
-update quiz.batches set window_minutes = 30, duration_minutes = null;
+update quiz.batches set window_minutes = 30, duration_minutes = null
+ where name in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)');
 
 -- ------------------------------------ 3. coding is not marked, only remarked
 alter table quiz.answers add column if not exists remark text;

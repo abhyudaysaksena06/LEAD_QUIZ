@@ -5,7 +5,7 @@ import { deviceId } from '../lib/device'
 
 /** Shown once, straight after Google sign-in, for an allowlisted student who
  *  hasn't registered yet. Collects name, roll number and a photo ID. */
-export default function Register({ info, onDone, onCancel }) {
+export default function Register({ info, onDone, onCancel, mode = 'recruitment' }) {
   const [name, setName] = useState(info.full_name || '')
   const [roll, setRoll] = useState(info.roll_hint || '')
   const [photo, setPhoto] = useState(null)      // { b64, dataUrl, bytes, mime }
@@ -27,10 +27,14 @@ export default function Register({ info, onDone, onCancel }) {
     if (!photo) { setError('Please attach a photo of your ID.'); return }
     setError(''); setBusy(true)
     try {
-      const s = await rpc('student_register', {
-        p_roll: roll.trim(), p_full_name: name.trim(),
-        p_id_mime: null, p_id_b64: null, p_device: deviceId(),
-      })
+      const s = mode === 'public'
+        ? await rpc('public_quiz_register', {
+            p_roll: roll.trim(), p_full_name: name.trim(), p_device: deviceId(),
+          })
+        : await rpc('student_register', {
+            p_roll: roll.trim(), p_full_name: name.trim(),
+            p_id_mime: null, p_id_b64: null, p_device: deviceId(),
+          })
       store.set('student', s)
       onDone()
     } catch (err) {

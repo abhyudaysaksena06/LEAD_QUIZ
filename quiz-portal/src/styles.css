@@ -251,3 +251,12 @@ td.mono { font-family: var(--mono); }
   background: rgba(215, 226, 238, .25);
   background-clip: content-box;
 }
+
+/* ---------- proctor live view (one student at a time) ---------- */
+.live-view { position: fixed; left: 18px; bottom: 18px; z-index: 80; width: min(360px, calc(100vw - 36px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  box-shadow: 0 12px 36px rgba(16,24,40,.22); display: grid; gap: 8px; }
+.live-frame { aspect-ratio: 4 / 3; max-width: 100%; background: #0f1720; border-radius: 6px;
+  display: grid; place-items: center; overflow: hidden; }
+.live-frame img { width: 100%; height: 100%; object-fit: contain; transition: opacity .2s; }
+.live-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { rpc, store } from '../lib/api'
 import StudentDrawer from '../components/admin/StudentDrawer'
@@ -7,6 +7,7 @@ import Batches from '../components/admin/Batches'
 import Submissions from '../components/admin/Submissions'
 import Registrations from '../components/admin/Registrations'
 import Roster from '../components/admin/Roster'
+import LiveView from '../components/admin/LiveView'
 import StudentLive from '../components/admin/StudentLive'
 import CameraReview from '../components/admin/CameraReview'
 import { fmtLeft, fmtTime, REASON_LABEL, StatusBadge } from '../components/admin/util'
@@ -278,11 +279,14 @@ export default function Admin() {
   const admin = store.get('admin')
   const token = admin?.token
   const [tab, setTab] = useState('live')
+  const tabRef = useRef('live')
+  useEffect(() => { tabRef.current = tab }, [tab])
   const [data, setData] = useState(null)
   const [offset, setOffset] = useState(0)
   const [error, setError] = useState('')
   const [openRoll, setOpenRoll] = useState(null)
   const [cameraQueue, setCameraQueue] = useState(0)
+  const [watching, setWatching] = useState(null)   // { roll, name } — one student at a time
   const [, tick] = useState(0)
 
   const logout = useCallback(async (callServer = true) => {
@@ -301,10 +305,20 @@ export default function Admin() {
     }
   }, [token, logout])
 
+  // The overview carries every student. With hundreds of candidates it is refreshed every 5s
+  // only on the tabs that show that list, every 20s elsewhere, and not at all while the
+  // proctor's browser tab is hidden.
   useEffect(() => {
     if (!token) { nav('/admin/login', { replace: true }); return }
     refresh()
-    const t = setInterval(refresh, 5000)
+    let last = Date.now()
+    const t = setInterval(() => {
+      if (document.hidden) return
+      const busyTab = ['dashboard', 'submissions', 'chat', 'batches'].includes(tabRef.current)
+      if (Date.now() - last < (busyTab ? 5000 : 20000)) return
+      last = Date.now()
+      refresh()
+    }, 1000)
     const c = setInterval(() => tick(x => x + 1), 1000)
     return () => { clearInterval(t); clearInterval(c) }
   }, [token, nav, refresh])
@@ -344,7 +358,8 @@ export default function Admin() {
       <main className="admin-main">
         {error && <div className="error">{error}</div>}
         {!data ? <p className="muted">Loading…</p> : <>
-          {tab === 'live' && <StudentLive token={token} onOpen={setOpenRoll} />}
+          {tab === 'live' && <StudentLive token={token} onOpen={setOpenRoll} batches={batches}
+                                          onWatch={s => setWatching({ roll: s.roll_no, name: s.full_name })} />}
           {tab === 'camera' && <CameraReview token={token} />}
           {tab === 'dashboard' && <Dashboard students={students} batches={batches} offset={offset} onOpen={setOpenRoll} />}
           {tab === 'batches' && <Batches token={token} batches={batches} config={data.config} onChanged={refresh} />}
@@ -366,6 +381,11 @@ export default function Admin() {
           {tab === 'settings' && <SettingsTab token={token} config={data.config} onChanged={refresh} />}
         </>}
       </main>
+
+      {watching && (
+        <LiveView token={token} roll={watching.roll} name={watching.name}
+                  onClose={() => setWatching(null)} />
+      )}
 
       {openRoll && <StudentDrawer token={token} roll={openRoll} offset={offset}
                                   onClose={closeDrawer} onChanged={refresh} />}

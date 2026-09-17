@@ -2135,17 +2135,17 @@ update quiz.students s
    set batch_id = (select id from quiz.batches where name = 'Round 4 (Backup)')
  where s.batch_id is not null
    and s.batch_id not in (select id from quiz.batches
-                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)'));
+                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)','Public Quiz'));
 
 update quiz.allowlist a
    set batch_id = (select id from quiz.batches where name = 'Round 4 (Backup)')
  where a.batch_id is not null
    and a.batch_id not in (select id from quiz.batches
-                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)'));
+                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)','Public Quiz'));
 
 -- 3. remove every other batch (now guaranteed empty)
 delete from quiz.batches
- where name not in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)');
+ where name not in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)', 'Public Quiz');
 
 -- 4. confirm: this must show exactly four rows
 select b.name, b.is_open, b.window_minutes,
@@ -3920,7 +3920,8 @@ update quiz.config
  where id = 1;
 
 -- null duration on the round = use the 20 minutes from config
-update quiz.batches set window_minutes = 30, duration_minutes = null;
+update quiz.batches set window_minutes = 30, duration_minutes = null
+ where name in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)');
 
 -- ------------------------------------ 3. coding is not marked, only remarked
 alter table quiz.answers add column if not exists remark text;
@@ -4532,6 +4533,542 @@ delete from quiz.id_documents;
 select 'id images stored' as step, count(*) as remaining from quiz.id_documents
 union all
 select 'registered students kept', count(*) from quiz.students where email is not null;
+
+
+-- ##############################  23_public_quiz.sql  ##############################
+
+-- =====================================================================
+-- LEAD Quiz Portal — 23: the public quiz (/public)
+--
+-- A separate entry page for an open quiz. There is no registration list:
+-- anyone whose Google address contains "be26" or "btech26" may register,
+-- and they are placed in their own round, "Public Quiz", which draws from
+-- the whole question bank.
+--
+-- The recruitment quiz is untouched: its sign-in and registration functions
+-- are not modified, its rounds and students are not moved, and nobody on the
+-- recruitment list can register through the public page.
+-- Safe to re-run.
+-- =====================================================================
+
+alter table quiz.config add column if not exists public_quiz_enabled   boolean not null default true;
+alter table quiz.config add column if not exists public_email_patterns text[]  not null default array['be26', 'btech26'];
+
+insert into quiz.batches (name, is_open, window_minutes)
+values ('Public Quiz', false, 60)
+on conflict (name) do nothing;
+update quiz.batches set pool_no = 0 where name = 'Public Quiz';
+
+-- Case-insensitive "does the address contain one of the patterns".
+create or replace function quiz.public_email_ok(p_email text)
+returns boolean language sql stable security definer set search_path = quiz, public as $$
+  select coalesce(bool_or(position(lower(p) in lower(coalesce(p_email, ''))) > 0), false)
+    from quiz.config c, unnest(c.public_email_patterns) p
+   where c.id = 1;
+$$;
+
+create or replace function quiz.pick_questions(p_kind text, p_section text, p_pool int,
+                                               p_excl int, p_total int)
+returns table (id int) language plpgsql security definer set search_path = quiz, public as $$
+declare v_ids int[] := '{}';
+begin
+  -- pool 0 = the public quiz: draw from the whole bank, no round slices
+  if p_pool = 0 then
+    return query select q.id from quiz.questions q
+                  where q.kind = p_kind and q.active
+                    and (p_section is null or q.section = p_section)
+                  order by random() limit p_total;
+    return;
+  end if;
+
+  if p_pool is not null and p_excl > 0 then
+    select array(select q.id from quiz.questions q
+                  where q.kind = p_kind and q.active
+                    and (p_section is null or q.section = p_section)
+                    and q.round_pool = p_pool
+                  order by random() limit p_excl)
+      into v_ids;
+  end if;
+
+  select v_ids || array(select q.id from quiz.questions q
+                where q.kind = p_kind and q.active
+                  and (p_section is null or q.section = p_section)
+                  and q.round_pool is null
+                  and not (q.id = any (v_ids))
+                order by random()
+                limit greatest(p_total - coalesce(array_length(v_ids, 1), 0), 0))
+    into v_ids;
+
+  if coalesce(array_length(v_ids, 1), 0) < p_total then
+    select v_ids || array(select q.id from quiz.questions q
+                  where q.kind = p_kind and q.active
+                    and (p_section is null or q.section = p_section)
+                    and not (q.id = any (v_ids))
+                  order by random()
+                  limit p_total - coalesce(array_length(v_ids, 1), 0))
+      into v_ids;
+  end if;
+
+  return query select unnest(v_ids);
+end $$;
+
+-- ---------- sign-in from the public page ----------
+create or replace function public.public_quiz_login_google(p_device text default null)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_claims jsonb; v_email text; s quiz.students; v_token uuid; v_cfg quiz.config;
+begin
+  begin
+    v_claims := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+  exception when others then v_claims := null;
+  end;
+  v_email := lower(trim(coalesce(v_claims ->> 'email', '')));
+  if v_email = '' then raise exception 'NOT_SIGNED_IN'; end if;
+  if coalesce(v_claims -> 'user_metadata' ->> 'email_verified',
+              v_claims ->> 'email_verified', 'true') = 'false' then
+    raise exception 'EMAIL_NOT_VERIFIED';
+  end if;
+
+  select * into s from quiz.students where lower(email) = v_email;
+  if s.roll_no is not null and s.banned then raise exception 'BANNED'; end if;
+
+  -- already registered (public or recruitment): sign in exactly as the main page does
+  if s.roll_no is not null then
+    if exists (select 1 from quiz.attempts
+                where roll_no = s.roll_no and status in ('in_progress', 'paused')) then
+      update quiz.sessions set revoked = true
+       where kind = 'student' and subject = s.roll_no and not revoked;
+    end if;
+    insert into quiz.sessions (kind, subject, expires_at, device)
+    values ('student', s.roll_no, now() + interval '12 hours', p_device)
+    returning token into v_token;
+    return json_build_object('token', v_token, 'roll_no', s.roll_no,
+                             'full_name', s.full_name, 'email', s.email,
+                             'needs_registration', false);
+  end if;
+
+  -- on the recruitment list but not registered: keep them on their own quiz
+  if exists (select 1 from quiz.allowlist where email = v_email) then
+    raise exception 'USE_MAIN_PAGE';
+  end if;
+
+  select * into v_cfg from quiz.config where id = 1;
+  if not v_cfg.public_quiz_enabled then raise exception 'PUBLIC_QUIZ_CLOSED'; end if;
+  if not quiz.public_email_ok(v_email) then raise exception 'PUBLIC_EMAIL_NOT_ELIGIBLE'; end if;
+
+  return json_build_object('needs_registration', true, 'email', v_email,
+                           'full_name', nullif(trim(coalesce(v_claims ->> 'name', '')), ''),
+                           'roll_hint', null, 'public', true);
+end $$;
+
+-- ---------- one-time registration from the public page ----------
+create or replace function public.public_quiz_register(p_roll text, p_full_name text,
+                                                       p_device text default null)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_claims jsonb; v_email text; v_roll text; v_token uuid; v_batch int; v_cfg quiz.config;
+begin
+  begin
+    v_claims := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+  exception when others then v_claims := null;
+  end;
+  v_email := lower(trim(coalesce(v_claims ->> 'email', '')));
+  if v_email = '' then raise exception 'NOT_SIGNED_IN'; end if;
+  if coalesce(v_claims -> 'user_metadata' ->> 'email_verified',
+              v_claims ->> 'email_verified', 'true') = 'false' then
+    raise exception 'EMAIL_NOT_VERIFIED';
+  end if;
+
+  if exists (select 1 from quiz.students where lower(email) = v_email) then
+    raise exception 'ALREADY_REGISTERED';
+  end if;
+  if exists (select 1 from quiz.allowlist where email = v_email) then
+    raise exception 'USE_MAIN_PAGE';
+  end if;
+  select * into v_cfg from quiz.config where id = 1;
+  if not v_cfg.public_quiz_enabled then raise exception 'PUBLIC_QUIZ_CLOSED'; end if;
+  if not quiz.public_email_ok(v_email) then raise exception 'PUBLIC_EMAIL_NOT_ELIGIBLE'; end if;
+
+  v_roll := upper(trim(coalesce(p_roll, '')));
+  if length(v_roll) < 3 then raise exception 'ROLL_TOO_SHORT'; end if;
+  if length(trim(coalesce(p_full_name, ''))) < 2 then raise exception 'NAME_REQUIRED'; end if;
+
+  select id into v_batch from quiz.batches where name = 'Public Quiz';
+  if v_batch is null then raise exception 'PUBLIC_QUIZ_CLOSED'; end if;
+
+  begin
+    insert into quiz.students (roll_no, password_hash, full_name, email, batch_id)
+    values (v_roll, quiz.hash_password(gen_random_uuid()::text), trim(p_full_name), v_email, v_batch);
+  exception when unique_violation then
+    if exists (select 1 from quiz.students where roll_no = v_roll) then
+      raise exception 'ROLL_ALREADY_USED: %', v_roll;
+    end if;
+    raise exception 'ALREADY_REGISTERED';
+  end;
+
+  -- listed alongside everyone else, so Students / Registrations / Student Live all show them
+  insert into quiz.allowlist (email, batch_id, full_name, claimed_by)
+  values (v_email, v_batch, trim(p_full_name), v_roll)
+  on conflict (email) do nothing;
+
+  insert into quiz.sessions (kind, subject, expires_at, device)
+  values ('student', v_roll, now() + interval '12 hours', p_device)
+  returning token into v_token;
+
+  return json_build_object('token', v_token, 'roll_no', v_roll,
+                           'full_name', trim(p_full_name), 'email', v_email,
+                           'needs_registration', false, 'public', true);
+end $$;
+
+-- ---------- admin: switch the public page on/off, change the address rule ----------
+create or replace function public.admin_set_public_quiz(p_token uuid, p_enabled boolean,
+                                                        p_patterns text[] default null)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token);
+begin
+  update quiz.config
+     set public_quiz_enabled   = coalesce(p_enabled, public_quiz_enabled),
+         public_email_patterns = coalesce(p_patterns, public_email_patterns)
+   where id = 1;
+  perform quiz.audit(v_admin, 'SET_PUBLIC_QUIZ', null,
+                     json_build_object('enabled', p_enabled, 'patterns', p_patterns)::jsonb);
+  return (select json_build_object('enabled', public_quiz_enabled, 'patterns', public_email_patterns)
+            from quiz.config where id = 1);
+end $$;
+
+grant execute on function public.public_quiz_login_google(text)              to anon, authenticated;
+grant execute on function public.public_quiz_register(text, text, text)      to anon, authenticated;
+grant execute on function public.admin_set_public_quiz(uuid, boolean, text[]) to anon, authenticated;
+
+select 'public quiz' as step, b.name, b.is_open, b.window_minutes, b.pool_no,
+       (select public_email_patterns::text from quiz.config where id = 1) as allowed_if_email_contains,
+       (select count(*) from quiz.students s where s.batch_id = b.id) as registered
+  from quiz.batches b where b.name = 'Public Quiz';
+
+
+-- ##############################  24_live_view.sql  ##############################
+
+-- =====================================================================
+-- LEAD Quiz Portal — 24: proctor live view (one student at a time)
+--
+-- A proctor picks one student and sees their camera at about one frame per
+-- second. Nothing is recorded: the student's browser overwrites a single
+-- frame in place, only while a proctor is actually watching, and the row is
+-- deleted when the proctor stops or leaves.
+--
+-- Frames go through the database rather than peer-to-peer video because it
+-- works on every home network and firewall with no extra server; the cost is
+-- about one frame a second instead of smooth video.
+-- Safe to re-run.
+-- =====================================================================
+
+create table if not exists quiz.live_watch (
+  roll_no      text primary key references quiz.students (roll_no) on delete cascade,
+  watcher      text not null,
+  requested_at timestamptz not null default now(),
+  mime         text,
+  frame        text,
+  frame_at     timestamptz
+);
+create index if not exists live_watch_watcher_idx on quiz.live_watch (watcher);
+revoke all on quiz.live_watch from public;
+
+-- proctor: start watching this student (stops whoever you were watching before)
+create or replace function public.admin_watch_start(p_token uuid, p_roll text)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token);
+begin
+  if not exists (select 1 from quiz.students where roll_no = p_roll) then
+    raise exception 'NO_SUCH_STUDENT';
+  end if;
+  delete from quiz.live_watch where watcher = v_admin and roll_no <> p_roll;
+  insert into quiz.live_watch (roll_no, watcher, requested_at)
+  values (p_roll, v_admin, now())
+  on conflict (roll_no) do update
+    set watcher = excluded.watcher, requested_at = now();
+  perform quiz.audit(v_admin, 'WATCH_LIVE', p_roll);
+  return json_build_object('ok', true);
+end $$;
+
+-- proctor: fetch the latest frame (also keeps the view alive)
+create or replace function public.admin_watch_frame(p_token uuid, p_roll text)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token); w quiz.live_watch;
+begin
+  update quiz.live_watch set requested_at = now()
+   where roll_no = p_roll and watcher = v_admin
+  returning * into w;
+  if w.roll_no is null then
+    return json_build_object('watching', false,
+      'taken_by', (select watcher from quiz.live_watch where roll_no = p_roll));
+  end if;
+  return json_build_object('watching', true, 'server_now', now(),
+    'mime', w.mime, 'frame', w.frame, 'frame_at', w.frame_at,
+    'status', (select status from quiz.attempts where roll_no = p_roll));
+end $$;
+
+-- proctor: stop watching
+create or replace function public.admin_watch_stop(p_token uuid)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token);
+begin
+  delete from quiz.live_watch where watcher = v_admin;
+  return json_build_object('ok', true);
+end $$;
+
+-- student: send one frame. Accepted only while someone is watching.
+create or replace function public.student_live_frame(p_token uuid, p_mime text, p_b64 text)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_roll text := quiz.student_from_token(p_token);
+begin
+  if p_b64 is null or length(p_b64) > 90000 then
+    return json_build_object('watching', true, 'skipped', 'size');
+  end if;
+  if coalesce(p_mime, '') not in ('image/webp', 'image/jpeg') then
+    return json_build_object('watching', false);
+  end if;
+  update quiz.live_watch
+     set frame = p_b64, mime = p_mime, frame_at = now()
+   where roll_no = v_roll and requested_at > now() - interval '15 seconds';
+  return json_build_object('watching', found);
+end $$;
+
+create or replace function public.student_heartbeat(p_token uuid, p_device text default null,
+                                                    p_camera_ok boolean default null,
+                                                    p_camera_note text default null)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_roll text := quiz.student_from_token(p_token); v_att quiz.attempts; v_unread int;
+        v_device text;
+begin
+  select * into v_att from quiz.attempts where roll_no = v_roll;
+
+  -- Device lock applies only while the test is live. Before it starts, the same
+  -- account may be open on several devices; during it, a token appearing from a
+  -- second browser kills the session (returns rather than raises, so it commits).
+  if v_att.status in ('in_progress', 'paused') then
+    select device into v_device from quiz.sessions where token = p_token;
+    if v_device is not null and p_device is not null and v_device <> p_device then
+      update quiz.sessions set revoked = true where token = p_token;
+      return json_build_object('ok', false, 'code', 'SESSION_TAKEN');
+    end if;
+    if v_device is null and p_device is not null then
+      update quiz.sessions set device = p_device where token = p_token;
+    end if;
+  end if;
+
+  select * into v_att from quiz.attempts where roll_no = v_roll;
+  if v_att.id is not null then
+    perform quiz.expire_if_needed(v_att.id);
+    select * into v_att from quiz.attempts where id = v_att.id;
+  end if;
+  if v_att.id is not null and p_camera_ok is not null then
+    update quiz.attempts set camera_ok = p_camera_ok, camera_note = left(p_camera_note, 120)
+     where id = v_att.id;
+  end if;
+
+  select count(*) into v_unread from quiz.messages
+   where roll_no = v_roll and sender = 'admin' and not read_by_student;
+  return json_build_object('server_now', now(), 'status', v_att.status,
+    'deadline_at', v_att.deadline_at, 'flag_count', v_att.flag_count, 'unread', v_unread,
+    -- a proctor has this student open in the live view: start sending frames
+    'watch', exists (select 1 from quiz.live_watch w
+                      where w.roll_no = v_roll and w.requested_at > now() - interval '15 seconds'));
+end $$;
+
+grant execute on function public.admin_watch_start(uuid, text)        to anon, authenticated;
+grant execute on function public.admin_watch_frame(uuid, text)        to anon, authenticated;
+grant execute on function public.admin_watch_stop(uuid)               to anon, authenticated;
+grant execute on function public.student_live_frame(uuid, text, text) to anon, authenticated;
+
+
+-- ##############################  25_scale.sql  ##############################
+
+-- =====================================================================
+-- LEAD Quiz Portal — 25: headroom for 400+ candidates at once
+--
+-- 1. Housekeeping (ending expired papers, handing over chats, expiring old
+--    camera items) used to run on EVERY proctor refresh — five proctors
+--    polling two screens every 5 seconds ran it about twice a second. It now
+--    runs at most once every 10 seconds, and never twice at the same moment.
+--    pg_cron still sweeps every minute, and a student's own heartbeat ends
+--    their paper the moment their time is used, so nothing waits longer.
+-- 2. "Last seen" was written to the students table on every click and
+--    heartbeat. It is now written at most every 10 seconds per student.
+-- 3. Student Live can load a single round instead of everyone.
+-- 4. Capacity ceiling raised to 1000 simultaneous papers.
+-- 5. Stale live-view rows are cleaned up.
+-- Safe to re-run. No existing data is changed.
+-- =====================================================================
+
+alter table quiz.config add column if not exists housekeeping_at timestamptz;
+
+create or replace function quiz.housekeeping()
+returns void language plpgsql security definer set search_path = quiz, public as $$
+begin
+  -- one caller at a time; everyone else just carries on
+  if not pg_try_advisory_xact_lock(hashtext('lead-quiz-housekeeping')) then return; end if;
+  update quiz.config set housekeeping_at = now()
+   where id = 1 and (housekeeping_at is null or housekeeping_at < now() - interval '10 seconds');
+  if not found then return; end if;
+
+  perform quiz.sweep_expired();
+  perform quiz.rebalance_threads();
+  perform quiz.expire_detections();
+  delete from quiz.live_watch where requested_at < now() - interval '2 minutes';
+end $$;
+
+create or replace function quiz.student_from_token(p_token uuid)
+returns text language plpgsql security definer set search_path = quiz, public as $$
+declare v text;
+begin
+  select subject into v from quiz.sessions
+   where token = p_token and kind = 'student' and not revoked and expires_at > now();
+  if v is null then raise exception 'SESSION_INVALID'; end if;
+  -- presence, written at most every 10 seconds instead of on every click
+  update quiz.students set last_seen_at = now()
+   where roll_no = v and (last_seen_at is null or last_seen_at < now() - interval '10 seconds');
+  return v;
+end $$;
+
+drop function if exists public.admin_live(uuid);
+create or replace function public.admin_live(p_token uuid, p_batch_id int default null)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token); v_rows json;
+begin
+  perform quiz.housekeeping();
+
+  -- students needing attention first: unread chats, open violations, then camera trouble
+  select coalesce(json_agg(x order by (x.unread + x.open_flags + x.pending_camera) desc,
+                           (x.status = 'in_progress' and x.camera_ok is false) desc,
+                           x.active desc, x.roll_no), '[]'::json)
+    into v_rows from (
+    with fl as (
+      select at.roll_no,
+             count(*) as open_flags,
+             json_agg(json_build_object('id', f.id, 'kind', f.kind, 'detail', f.detail,
+                                        'created_at', f.created_at) order by f.created_at desc) as flags
+        from quiz.flags f
+        join quiz.attempts at on at.id = f.attempt_id
+       where f.counted and not f.resolved
+       group by at.roll_no
+    ), msg as (
+      select roll_no,
+             count(*) filter (where sender = 'student' and not read_by_admin) as unread,
+             max(created_at) filter (where sender = 'student') as last_student_message_at,
+             (array_agg(body order by id desc) filter (where sender = 'student'))[1] as last_student_message
+        from quiz.messages group by roll_no
+    ), det as (
+      select roll_no, count(*) as pending_camera,
+             (array_agg(kind order by created_at desc))[1] as last_camera_kind
+        from quiz.detections where status = 'pending' group by roll_no
+    )
+    select s.roll_no, s.full_name, s.banned,
+           b.name as batch_name,
+           coalesce(a.status, 'not_started') as status,
+           a.deadline_at, a.flag_count, a.submitted_at, a.camera_ok, a.camera_note,
+           coalesce(s.last_seen_at > now() - interval '30 seconds', false) as active,
+           s.last_seen_at,
+           coalesce(msg.unread, 0) as unread,
+           msg.last_student_message, msg.last_student_message_at,
+           coalesce(fl.open_flags, 0) as open_flags,
+           coalesce(fl.flags, '[]'::json) as flags,
+           coalesce(det.pending_camera, 0) as pending_camera, det.last_camera_kind,
+           th.assigned_to, coalesce(th.resolved, true) as thread_resolved,
+           (select w.watcher from quiz.live_watch w where w.roll_no = s.roll_no
+               and w.requested_at > now() - interval '15 seconds') as watched_by
+      from quiz.students s
+      left join quiz.attempts a on a.roll_no = s.roll_no
+      left join quiz.batches  b on b.id = s.batch_id
+      left join quiz.threads  th on th.roll_no = s.roll_no
+      left join fl on fl.roll_no = s.roll_no
+      left join msg on msg.roll_no = s.roll_no
+      left join det on det.roll_no = s.roll_no
+     where p_batch_id is null or s.batch_id = p_batch_id
+  ) x;
+
+  return json_build_object('server_now', now(), 'me', v_admin, 'students', v_rows);
+end $$;
+
+create or replace function public.admin_overview(p_token uuid)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token); v_cfg quiz.config; v_rows json;
+begin
+  -- timers, chat hand-over and old camera items, at most once every 10 seconds
+  perform quiz.housekeeping();
+
+  select * into v_cfg from quiz.config where id = 1;
+
+  -- Single pass over answers and messages instead of per-student subqueries.
+  -- This runs every 5 seconds for every admin, so it is the hottest query in the system.
+  select coalesce(json_agg(r order by r.unread desc, r.roll_no), '[]'::json) into v_rows from (
+    with ans as (
+      select attempt_id,
+             count(*) filter (where selected_index is not null or length(coalesce(code, '')) > 0) as answered
+        from quiz.answers group by attempt_id
+    ), msg as (
+      select roll_no,
+             count(*) filter (where sender = 'student' and not read_by_admin) as unread,
+             max(created_at) as last_message_at,
+             max(created_at) filter (where sender = 'student') as last_student_message_at
+        from quiz.messages group by roll_no
+    )
+    select s.roll_no, s.full_name, s.email, s.batch_id, s.banned, s.banned_reason, b.name as batch_name,
+           coalesce(a.status, 'not_started') as status,
+           a.id as attempt_id, a.flag_count, a.started_at, a.deadline_at, a.submitted_at,
+           a.submit_reason, a.mcq_score, a.coding_score, a.total_score, a.unblock_count,
+           coalesce(array_length(a.question_ids, 1), 0) as total_questions,
+           coalesce(ans.answered, 0) as answered,
+           coalesce(msg.unread, 0) as unread,
+           msg.last_message_at, msg.last_student_message_at,
+           th.assigned_to, coalesce(th.resolved, true) as thread_resolved,
+           exists (select 1 from quiz.id_documents d where d.roll_no = s.roll_no) as has_id
+      from quiz.students s
+      left join quiz.attempts a on a.roll_no = s.roll_no
+      left join quiz.batches  b on b.id = s.batch_id
+      left join quiz.threads  th on th.roll_no = s.roll_no
+      left join ans on ans.attempt_id = a.id
+      left join msg on msg.roll_no = s.roll_no
+  ) r;
+
+  return json_build_object(
+    'server_now', now(),
+    'me', v_admin,
+    'config', row_to_json(v_cfg),
+    'registration', json_build_object(
+      'allowlisted', (select count(*) from quiz.allowlist),
+      'registered',  (select count(*) from quiz.allowlist where claimed_by is not null),
+      'pending',     (select count(*) from quiz.allowlist where claimed_by is null)),
+    'admins', coalesce((select json_agg(json_build_object(
+        'username', a.username, 'display_name', a.display_name,
+        'active', quiz.admin_is_active(a.username), 'last_seen_at', a.last_seen_at,
+        'open_threads', (select count(*) from quiz.threads t
+                          where t.assigned_to = a.username and not t.resolved),
+        'unread', (select count(*) from quiz.messages m
+                     join quiz.threads t2 on t2.roll_no = m.roll_no
+                    where t2.assigned_to = a.username and not t2.resolved
+                      and m.sender = 'student' and not m.read_by_admin)
+      ) order by a.username) from quiz.admins a), '[]'::json),
+    'batches', coalesce((select json_agg(json_build_object(
+        'id', b.id, 'name', b.name, 'is_open', b.is_open,
+        'duration_minutes', b.duration_minutes, 'opened_at', b.opened_at,
+        'window_minutes', b.window_minutes, 'closes_at', b.closes_at,
+        'students', (select count(*) from quiz.students s where s.batch_id = b.id),
+        'not_started', (select count(*) from quiz.students s where s.batch_id = b.id
+                          and not exists (select 1 from quiz.attempts a where a.roll_no = s.roll_no)),
+        'in_progress', (select count(*) from quiz.attempts a join quiz.students s on s.roll_no = a.roll_no
+                         where s.batch_id = b.id and a.status = 'in_progress'),
+        'finished', (select count(*) from quiz.attempts a join quiz.students s on s.roll_no = a.roll_no
+                      where s.batch_id = b.id and a.status in ('submitted', 'blocked'))
+      ) order by b.id) from quiz.batches b), '[]'::json),
+    'students', v_rows);
+end $$;
+
+grant execute on function public.admin_live(uuid, int) to anon, authenticated;
+grant execute on function public.admin_overview(uuid)  to anon, authenticated;
+
+create index if not exists attempts_status_idx     on quiz.attempts (status);
+create index if not exists detections_roll_pending on quiz.detections (roll_no) where status = 'pending';
+
+alter table quiz.config alter column max_concurrent set default 1000;
+update quiz.config set max_concurrent = greatest(max_concurrent, 1000) where id = 1;
 
 
 -- =====================================================================

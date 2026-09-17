@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './styles.css'
 import { configured } from './lib/api'
 import StudentLogin from './pages/StudentLogin'
+import PublicQuiz from './pages/PublicQuiz'
 import Exam from './pages/Exam'
 import AdminLogin from './pages/AdminLogin'
 import Admin from './pages/Admin'
@@ -27,6 +28,7 @@ createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<StudentLogin />} />
+          <Route path="/public" element={<PublicQuiz />} />
           <Route path="/exam" element={<Exam />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<Admin />} />

@@ -20,7 +20,7 @@ const CAMERA_LABEL = {
   NO_PERSON: 'nobody in frame',
 }
 
-function Row({ s, offset, token, onChanged, onOpen }) {
+function Row({ s, offset, token, onChanged, onOpen, onWatch, me }) {
   const [open, setOpen] = useState(false)
   const attention = Number(s.unread) + Number(s.open_flags) + Number(s.pending_camera || 0)
   const left = s.status === 'in_progress' ? new Date(s.deadline_at) - (Date.now() + offset) : null
@@ -68,6 +68,13 @@ function Row({ s, offset, token, onChanged, onOpen }) {
           <button className="sm ghost" onClick={() => setOpen(o => !o)}>
             {open ? 'Hide' : attention ? `Review (${attention})` : 'Details'}
           </button>
+          {s.status === 'in_progress' && (
+            <button className="sm ghost" style={{ marginLeft: 4 }}
+                    title={s.watched_by && s.watched_by !== me ? `${s.watched_by} is watching` : 'See this student’s camera live'}
+                    onClick={() => onWatch(s)}>
+              {s.watched_by ? `● ${s.watched_by === me ? 'Watching' : s.watched_by}` : 'Watch live'}
+            </button>
+          )}
           <button className="sm ghost" style={{ marginLeft: 4 }} onClick={() => onOpen(s.roll_no)}>Open ›</button>
         </td>
       </tr>
@@ -119,19 +126,21 @@ function Row({ s, offset, token, onChanged, onOpen }) {
   )
 }
 
-export default function StudentLive({ token, onOpen }) {
+export default function StudentLive({ token, onOpen, onWatch, batches = [] }) {
   const [data, setData] = useState(null)
   const [offset, setOffset] = useState(0)
   const [filter, setFilter] = useState('attention')
+  const [round, setRound] = useState('')   // '' = every round
   const [err, setErr] = useState('')
   const [, tick] = useState(0)
 
   const load = useCallback(async () => {
     try {
-      const d = await rpc('admin_live', { p_token: token })
+      // one round only when chosen: with hundreds of candidates this is a much smaller download
+      const d = await rpc('admin_live', { p_token: token, p_batch_id: round ? Number(round) : null })
       setData(d); setOffset(new Date(d.server_now) - Date.now()); setErr('')
     } catch (e) { setErr(e.message) }
-  }, [token])
+  }, [token, round])
 
   useEffect(() => {
     load()
@@ -162,6 +171,10 @@ export default function StudentLive({ token, onOpen }) {
           <option value="live">Online now ({live.length})</option>
           <option value="all">Everyone ({students.length})</option>
         </select>
+        <select value={round} onChange={e => setRound(e.target.value)}>
+          <option value="">All rounds</option>
+          {batches.map(b => <option key={b.id} value={String(b.id)}>{b.name}{b.is_open ? ' (open)' : ''}</option>)}
+        </select>
         <button className="ghost sm" onClick={load}>Refresh</button>
         <span className="small muted">Updates every 5 seconds · resolved items disappear for all proctors</span>
       </div>
@@ -181,7 +194,8 @@ export default function StudentLive({ token, onOpen }) {
               </td></tr>
             )}
             {rows.map(s => (
-              <Row key={s.roll_no} s={s} offset={offset} token={token} onChanged={load} onOpen={onOpen} />
+              <Row key={s.roll_no} s={s} offset={offset} token={token} onChanged={load} onOpen={onOpen}
+                   onWatch={onWatch} me={data?.me} />
             ))}
           </tbody>
         </table>

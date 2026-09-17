@@ -11,6 +11,7 @@ import ChatBox from '../components/ChatBox'
 import ConsentForm, { CONSENT_VERSION } from '../components/ConsentForm'
 
 const LETTERS = 'ABCDEFGHIJ'
+const entryPath = () => (store.get('entry') === 'public' ? '/public' : '/')
 const fmtClock = ms => {
   const s = Math.max(0, Math.ceil(ms / 1000))
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
@@ -76,6 +77,7 @@ export default function Exam() {
   const [mic, setMic] = useState(false)
   const [cam, setCam] = useState(false)
   const [visionReady, setVisionReady] = useState(false)
+  const [watched, setWatched] = useState(false)   // a proctor has this student open in live view
   const videoRef = useRef(null)
   const lastSent = useRef({})
   const streak = useRef({ kind: null, n: 0 })
@@ -103,8 +105,9 @@ export default function Exam() {
 
   const goLogin = useCallback(() => {
     ending.current = true
+    const home = entryPath()
     store.del('student'); releaseScreen(); releaseMic(); releaseCamera()
-    nav('/', { replace: true })
+    nav(home, { replace: true })
   }, [nav])
 
   const handleError = useCallback(err => {
@@ -152,7 +155,7 @@ export default function Exam() {
   }, [token, applyState, handleError])
 
   useEffect(() => {
-    if (!token) { nav('/', { replace: true }); return }
+    if (!token) { nav(entryPath(), { replace: true }); return }
     load()
   }, [token, nav, load])
 
@@ -331,6 +334,7 @@ export default function Exam() {
         })
         setOffset(new Date(h.server_now).getTime() - Date.now())
         setUnread(h.unread)
+        setWatched(Boolean(h.watch))
         if (h.deadline_at) setDeadline(new Date(h.deadline_at).getTime())
         if (h.flag_count != null) setFlagCount(h.flag_count)
         if (phase === 'exam') {
@@ -396,6 +400,29 @@ export default function Exam() {
     const t = setInterval(run, 2500)
     return () => { stopped = true; clearInterval(t) }
   }, [phase, armed, cam, token, visionReady, exam?.config?.detect_phone])
+
+  // Live view. Sends a small still about once a second, and ONLY while a proctor has this
+  // student open. Nothing is stored: each frame overwrites the last, and stops when they stop.
+  useEffect(() => {
+    if (phase !== 'exam' || !cam || !watched) return
+    let stopped = false
+    let sending = false
+    const send = async () => {
+      if (stopped || sending) return
+      const v = videoRef.current
+      const shot = v && v.videoWidth ? captureFrame(v, { maxDim: 320, quality: 0.5 }) : null
+      if (!shot) return
+      sending = true
+      try {
+        const r = await rpc('student_live_frame', { p_token: token, p_mime: shot.mime, p_b64: shot.b64 })
+        if (r && r.watching === false) { stopped = true; setWatched(false) }
+      } catch { /* the live view must never interrupt the exam */ }
+      finally { sending = false }
+    }
+    send()
+    const t = setInterval(send, 1000)
+    return () => { stopped = true; clearInterval(t) }
+  }, [phase, cam, watched, token])
 
   // while waiting for a proctor to open the batch, poll so Start unlocks by itself
   useEffect(() => {

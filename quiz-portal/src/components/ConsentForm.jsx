@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export const CONSENT_VERSION = 'v1.1'
+export const CONSENT_VERSION = 'v1.2'
 
 /** Shown once, when the candidate presses Start. Acceptance is recorded in the
  *  database with a timestamp and this version string. */
@@ -32,7 +32,9 @@ export default function ConsentForm({ examTitle, roll, name, requireCamera, requ
           {requireCamera && (
             <p>2.3 The webcam remains active for the duration of the examination. Images are processed on the
               candidate's own device. A single still image is transmitted to an invigilator only where the
-              system identifies a mobile telephone, more than one person, or the absence of the candidate.</p>
+              system identifies a mobile telephone, more than one person, or the absence of the candidate.
+              An invigilator may also view the candidate's camera live, at approximately one image per second,
+              for the duration of that viewing only. Live viewing is not recorded or stored.</p>
           )}
           {requireMic && (
             <p>2.4 Microphone permission is required for the duration of the examination.</p>
