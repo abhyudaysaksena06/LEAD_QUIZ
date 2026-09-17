@@ -61,7 +61,7 @@ export default function PublicQuiz() {
     <SplitPage cfg={info}>
       <div className="card narrow">
         <div className="brand-mark">LEAD Quiz</div>
-        <h1>Public quiz</h1>
+        <h1>Open quiz</h1>
         <p className="muted">
           Open to first-year students. Sign in with your Google account — use your official <b>@thapar.edu</b>
           email, which must contain <b>be26</b> or <b>btech26</b>.

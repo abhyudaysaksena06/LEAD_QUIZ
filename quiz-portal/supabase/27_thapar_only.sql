@@ -1,5 +1,5 @@
 -- =====================================================================
--- LEAD Quiz Portal — 27: public quiz is for @thapar.edu accounts only
+-- LEAD Quiz Portal — 27: open quiz is for @thapar.edu accounts only
 --
 -- The address must BOTH end with @thapar.edu AND contain be26 or btech26.
 -- A Gmail such as anything.be26@gmail.com is refused.
@@ -17,7 +17,7 @@ returns boolean language sql stable security definer set search_path = quiz, pub
    where c.id = 1;
 $$;
 
-select 'public quiz rule' as step,
+select 'open quiz rule' as step,
        '@' || public_email_domain as must_end_with,
        public_email_patterns::text as must_contain_one_of
   from quiz.config where id = 1;

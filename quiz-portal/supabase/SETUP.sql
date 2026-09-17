@@ -2135,17 +2135,17 @@ update quiz.students s
    set batch_id = (select id from quiz.batches where name = 'Round 4 (Backup)')
  where s.batch_id is not null
    and s.batch_id not in (select id from quiz.batches
-                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)','Public Quiz'));
+                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)','Public Quiz','Open Quiz'));
 
 update quiz.allowlist a
    set batch_id = (select id from quiz.batches where name = 'Round 4 (Backup)')
  where a.batch_id is not null
    and a.batch_id not in (select id from quiz.batches
-                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)','Public Quiz'));
+                           where name in ('Round 1','Round 2','Round 3','Round 4 (Backup)','Public Quiz','Open Quiz'));
 
 -- 3. remove every other batch (now guaranteed empty)
 delete from quiz.batches
- where name not in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)', 'Public Quiz');
+ where name not in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)', 'Public Quiz', 'Open Quiz');
 
 -- 4. confirm: this must show exactly four rows
 select b.name, b.is_open, b.window_minutes,
@@ -4538,11 +4538,11 @@ select 'registered students kept', count(*) from quiz.students where email is no
 -- ##############################  23_public_quiz.sql  ##############################
 
 -- =====================================================================
--- LEAD Quiz Portal — 23: the public quiz (/public)
+-- LEAD Quiz Portal — 23: the open quiz (default sign-in page)
 --
 -- A separate entry page for an open quiz. There is no registration list:
 -- anyone whose Google address contains "be26" or "btech26" may register,
--- and they are placed in their own round, "Public Quiz", which draws from
+-- and they are placed in their own round, "Open Quiz", which draws from
 -- the whole question bank.
 --
 -- The recruitment quiz is untouched: its sign-in and registration functions
@@ -4554,10 +4554,15 @@ select 'registered students kept', count(*) from quiz.students where email is no
 alter table quiz.config add column if not exists public_quiz_enabled   boolean not null default true;
 alter table quiz.config add column if not exists public_email_patterns text[]  not null default array['be26', 'btech26'];
 
+-- renamed from "Public Quiz": the same round, with everyone already in it
+update quiz.batches set name = 'Open Quiz'
+ where name = 'Public Quiz'
+   and not exists (select 1 from quiz.batches where name = 'Open Quiz');
+
 insert into quiz.batches (name, is_open, window_minutes)
-values ('Public Quiz', false, 60)
+values ('Open Quiz', false, 60)
 on conflict (name) do nothing;
-update quiz.batches set pool_no = 0 where name = 'Public Quiz';
+update quiz.batches set pool_no = 0 where name = 'Open Quiz';
 
 -- Case-insensitive "does the address contain one of the patterns".
 create or replace function quiz.public_email_ok(p_email text)
@@ -4572,7 +4577,7 @@ create or replace function quiz.pick_questions(p_kind text, p_section text, p_po
 returns table (id int) language plpgsql security definer set search_path = quiz, public as $$
 declare v_ids int[] := '{}';
 begin
-  -- pool 0 = the public quiz: draw from the whole bank, no round slices
+  -- pool 0 = the open quiz: draw from the whole bank, no round slices
   if p_pool = 0 then
     return query select q.id from quiz.questions q
                   where q.kind = p_kind and q.active
@@ -4691,7 +4696,7 @@ begin
   if length(v_roll) < 3 then raise exception 'ROLL_TOO_SHORT'; end if;
   if length(trim(coalesce(p_full_name, ''))) < 2 then raise exception 'NAME_REQUIRED'; end if;
 
-  select id into v_batch from quiz.batches where name = 'Public Quiz';
+  select id into v_batch from quiz.batches where name = 'Open Quiz';
   if v_batch is null then raise exception 'PUBLIC_QUIZ_CLOSED'; end if;
 
   begin
@@ -4738,10 +4743,10 @@ grant execute on function public.public_quiz_login_google(text)              to 
 grant execute on function public.public_quiz_register(text, text, text)      to anon, authenticated;
 grant execute on function public.admin_set_public_quiz(uuid, boolean, text[]) to anon, authenticated;
 
-select 'public quiz' as step, b.name, b.is_open, b.window_minutes, b.pool_no,
+select 'open quiz' as step, b.name, b.is_open, b.window_minutes, b.pool_no,
        (select public_email_patterns::text from quiz.config where id = 1) as allowed_if_email_contains,
        (select count(*) from quiz.students s where s.batch_id = b.id) as registered
-  from quiz.batches b where b.name = 'Public Quiz';
+  from quiz.batches b where b.name = 'Open Quiz';
 
 
 -- ##############################  24_live_view.sql  ##############################
@@ -5102,7 +5107,7 @@ grant execute on function public.exam_info() to anon, authenticated;
 -- ##############################  27_thapar_only.sql  ##############################
 
 -- =====================================================================
--- LEAD Quiz Portal — 27: public quiz is for @thapar.edu accounts only
+-- LEAD Quiz Portal — 27: open quiz is for @thapar.edu accounts only
 --
 -- The address must BOTH end with @thapar.edu AND contain be26 or btech26.
 -- A Gmail such as anything.be26@gmail.com is refused.
@@ -5120,7 +5125,7 @@ returns boolean language sql stable security definer set search_path = quiz, pub
    where c.id = 1;
 $$;
 
-select 'public quiz rule' as step,
+select 'open quiz rule' as step,
        '@' || public_email_domain as must_end_with,
        public_email_patterns::text as must_contain_one_of
   from quiz.config where id = 1;

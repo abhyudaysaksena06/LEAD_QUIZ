@@ -39,7 +39,7 @@ const FRIENDLY = {
   ROLL_ALREADY_USED: 'That roll number is already registered by someone else. Check it, or contact a proctor.',
   ROLL_TOO_SHORT: 'Please enter your full roll number.',
   PUBLIC_EMAIL_NOT_ELIGIBLE: 'This quiz is only open to official @thapar.edu accounts containing be26 or btech26. Sign in with your Thapar email.',
-  PUBLIC_QUIZ_CLOSED: 'Registration for the public quiz is closed.',
+  PUBLIC_QUIZ_CLOSED: 'Registration for the open quiz is closed.',
   USE_MAIN_PAGE: 'You are registered for the LEAD recruitment round. Please sign in on the recruitment page instead.',
   NO_SUCH_STUDENT: 'That student no longer exists.',
   NAME_REQUIRED: 'Please enter your full name.',

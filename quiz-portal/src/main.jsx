@@ -28,6 +28,7 @@ createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<PublicQuiz />} />
+          <Route path="/open" element={<PublicQuiz />} />
           <Route path="/public" element={<PublicQuiz />} />
           <Route path="/recruitment" element={<StudentLogin />} />
           <Route path="/exam" element={<Exam />} />

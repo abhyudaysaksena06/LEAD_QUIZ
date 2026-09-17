@@ -120,7 +120,7 @@ export default function StudentLogin() {
         )}
 
         <p className="small muted" style={{ marginTop: 16, textAlign: 'center' }}>
-          Taking the open quiz? <Link to="/">Public quiz</Link> · Proctor? <Link to="/admin/login">Admin portal</Link>
+          Taking the open quiz? <Link to="/">Open quiz</Link> · Proctor? <Link to="/admin/login">Admin portal</Link>
         </p>
       </div>
     </SplitPage>
