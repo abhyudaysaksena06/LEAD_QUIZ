@@ -70,7 +70,6 @@ export default function OpenQuiz({ token, onOpen }) {
         <div className="stat"><b style={{ color: 'var(--warn)' }}>{sum.signed_in ?? '—'}</b><span>Signed in, not registered</span></div>
         <div className="stat"><b>{sum.started ?? '—'}</b><span>Started the quiz</span></div>
         <div className="stat"><b>{sum.submitted ?? '—'}</b><span>Finished</span></div>
-        <div className="stat"><b style={{ color: 'var(--bad)' }}>{sum.not_eligible ?? '—'}</b><span>Refused (wrong email)</span></div>
       </div>
 
       <div className="toolbar">
@@ -83,7 +82,6 @@ export default function OpenQuiz({ token, onOpen }) {
           <option value="registered">Registered</option>
           <option value="signed_in">Signed in, not registered</option>
           <option value="started">Started the quiz</option>
-          <option value="not_eligible">Refused — email not eligible</option>
           <option value="recruitment_student">Recruitment students</option>
         </select>
         <button className="ghost sm" onClick={load}>Refresh</button>
