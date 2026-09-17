@@ -12,7 +12,7 @@ import ConsentForm, { CONSENT_VERSION } from '../components/ConsentForm'
 import { SplitPage } from '../components/Instructions'
 
 const LETTERS = 'ABCDEFGHIJ'
-const entryPath = () => (store.get('entry') === 'public' ? '/public' : '/')
+const entryPath = () => (store.get('entry') === 'main' ? '/recruitment' : '/')
 const fmtClock = ms => {
   const s = Math.max(0, Math.ceil(ms / 1000))
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`

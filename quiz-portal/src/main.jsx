@@ -27,8 +27,9 @@ createRoot(document.getElementById('root')).render(
     {!configured ? <NotConfigured /> : (
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<StudentLogin />} />
+          <Route path="/" element={<PublicQuiz />} />
           <Route path="/public" element={<PublicQuiz />} />
+          <Route path="/recruitment" element={<StudentLogin />} />
           <Route path="/exam" element={<Exam />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<Admin />} />

@@ -49,6 +49,7 @@ export default function StudentLogin() {
     e.preventDefault()
     setError(''); setBusy(true)
     try {
+      store.set('entry', 'main')
       store.set('student', await rpc('student_login',
         { p_roll: roll.trim(), p_password: password, p_device: deviceId() }))
       nav('/exam')
@@ -119,7 +120,7 @@ export default function StudentLogin() {
         )}
 
         <p className="small muted" style={{ marginTop: 16, textAlign: 'center' }}>
-          Taking the open quiz? <Link to="/public">Public quiz</Link> · Proctor? <Link to="/admin/login">Admin portal</Link>
+          Taking the open quiz? <Link to="/">Public quiz</Link> · Proctor? <Link to="/admin/login">Admin portal</Link>
         </p>
       </div>
     </SplitPage>

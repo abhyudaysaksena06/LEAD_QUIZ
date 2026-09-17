@@ -14,6 +14,18 @@ export default function PublicQuiz() {
   const [busy, setBusy] = useState(false)
   const [reg, setReg] = useState(null)
   const info = useExamInfo()
+  const [showPassword, setShowPassword] = useState(false)
+  const [roll, setRoll] = useState('')
+  const [password, setPassword] = useState('')
+
+  async function passwordLogin(e) {
+    e.preventDefault()
+    setError(''); setBusy(true)
+    try {
+      enter(await rpc('student_login', { p_roll: roll.trim(), p_password: password, p_device: deviceId() }))
+    } catch (err) { setError(err.message) }
+    finally { setBusy(false) }
+  }
 
   function enter(session) {
     store.set('entry', 'public')          // so sign-out returns here, not to the recruitment page
@@ -67,12 +79,28 @@ export default function PublicQuiz() {
 
         {error && <div className="error">{error}</div>}
 
+        {!showPassword ? (
+          <button type="button" className="ghost sm" style={{ width: '100%', marginTop: 12 }}
+                  onClick={() => setShowPassword(true)}>
+            Sign in with roll number and password
+          </button>
+        ) : (
+          <form onSubmit={passwordLogin} style={{ marginTop: 12 }}>
+            <label htmlFor="proll">Roll number</label>
+            <input id="proll" value={roll} onChange={e => setRoll(e.target.value)} autoComplete="username" required />
+            <label htmlFor="ppw">Password</label>
+            <input id="ppw" type="password" value={password} onChange={e => setPassword(e.target.value)}
+                   autoComplete="current-password" required />
+            <button style={{ width: '100%', marginTop: 12 }} disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+          </form>
+        )}
+
         <p className="small muted" style={{ marginTop: 16 }}>
           First time here? After signing in you’ll be asked for your name and roll number once.
           Your camera and microphone are required during the quiz.
         </p>
         <p className="small muted" style={{ textAlign: 'center' }}>
-          Selected for the LEAD recruitment round? <Link to="/">Use the recruitment page</Link>
+          Selected for the LEAD recruitment round? <Link to="/recruitment">Use the recruitment page</Link>
         </p>
       </div>
     </SplitPage>
