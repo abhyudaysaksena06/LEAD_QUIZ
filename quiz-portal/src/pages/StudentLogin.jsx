@@ -25,7 +25,7 @@ export default function StudentLogin() {
   const [busy, setBusy] = useState(false)
   const [reg, setReg] = useState(null)
   const [showPassword, setShowPassword] = useState(!firebaseConfigured)
-  const info = useExamInfo()
+  const info = useExamInfo('recruitment')
 
   async function google() {
     setError(''); setBusy(true)

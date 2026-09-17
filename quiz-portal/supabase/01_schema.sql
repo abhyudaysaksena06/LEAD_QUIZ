@@ -67,6 +67,10 @@ alter table quiz.batches add column if not exists closes_at timestamptz;
 -- the scheduled date and time shown to students while they wait
 alter table quiz.batches add column if not exists starts_at timestamptz;
 
+-- a round can set its own paper size (the open quiz uses a fixed 50-question paper)
+alter table quiz.batches add column if not exists paper_mcq    int;
+alter table quiz.batches add column if not exists paper_coding int;
+
 -- ---------- people ----------
 create table if not exists quiz.students (
   roll_no       text primary key,
@@ -212,6 +216,9 @@ create table if not exists quiz.questions (
     )
   )
 );
+
+-- which paper a question belongs to: the recruitment bank or the open quiz
+alter table quiz.questions add column if not exists question_set text not null default 'recruitment';
 
 -- ---------- coding test cases (output comparison) ----------
 -- is_sample = true  -> shown to the student, they can run it themselves

@@ -63,8 +63,9 @@ export default function PublicQuiz() {
         <div className="brand-mark">LEAD Quiz</div>
         <h1>Open quiz</h1>
         <p className="muted">
-          Open to first-year students. Sign in with your Google account — use your official <b>@thapar.edu</b>{' '}
-          email, which must contain <b>be26</b> or <b>btech26</b>.
+          Sign in with your official <b>@thapar.edu</b> Google account. First-year addresses containing
+          {' '}<b>be26</b> or <b>btech26</b> can start as soon as the quiz opens; any other Thapar address
+          can register and will be able to start once an admin approves it.
         </p>
 
         {firebaseConfigured ? (

@@ -475,6 +475,9 @@ export default function Exam() {
     const who = store.get('student') || {}
     const when = exam?.batch ? roundWhen(exam.batch.starts_at) : null
     const startsIn = exam?.batch?.starts_at ? new Date(exam.batch.starts_at) - (now + offset) : null
+    const approval = exam?.open_quiz_approval
+    const pending = approval === 'pending'
+    const rejected = approval === 'rejected'
     const waiting = !exam?.batch
       ? 'You have not been assigned to a round yet. Please contact a proctor.'
       : !cfg?.exam_open
@@ -490,11 +493,26 @@ export default function Exam() {
           <dt>Name</dt><dd>{exam?.student?.full_name || who.full_name || '—'}</dd>
           <dt>Roll number</dt><dd className="mono">{roll || '—'}</dd>
           {who.email && <><dt>Email</dt><dd className="mono small">{who.email}</dd></>}
-          <dt>Round</dt><dd>{exam?.batch?.name || '—'}</dd>
+          <dt>Round</dt><dd>{pending || rejected ? 'Open Quiz' : (exam?.batch?.name || '—')}</dd>
+          {approval && approval !== 'not_needed' && (
+            <><dt>Approval</dt><dd style={{ color: pending ? 'var(--warn)' : rejected ? 'var(--bad)' : 'var(--ok)' }}>
+              {pending ? 'Pending' : rejected ? 'Not approved' : 'Approved'}</dd></>
+          )}
           {when && <><dt>Scheduled</dt><dd>{when.date} · <b>{when.time}</b> <span className="muted">IST</span></dd></>}
         </dl>
 
-        {exam?.can_start
+        {pending ? (
+          <div className="status-box wait">
+            <div className="countdown"><b>Signed in — pending admin approval</b></div>
+            Your Thapar account is registered. An admin needs to approve it before you can start the quiz.
+            This page updates by itself as soon as you are approved — keep it open.
+          </div>
+        ) : rejected ? (
+          <div className="error">
+            Your registration for the open quiz was not approved. If you think this is a mistake, contact the
+            LEAD team on <b>9166220353</b>.
+          </div>
+        ) : exam?.can_start
           ? <div className="status-box ok">Your round is open. Read the instructions, then start when you are ready.</div>
           : (
             <div className="status-box wait">
@@ -508,7 +526,8 @@ export default function Exam() {
 
         <button className="lg" style={{ width: '100%', marginTop: 12 }}
                 onClick={() => start()} disabled={busy || !exam?.can_start}>
-          {busy ? 'Starting…' : exam?.can_start ? 'Start test in fullscreen' : 'Start (waiting for your round)'}
+          {busy ? 'Starting…' : exam?.can_start ? 'Start test in fullscreen'
+            : pending ? 'Start (waiting for approval)' : 'Start (waiting for your round)'}
         </button>
         <div className="row" style={{ marginTop: 10 }}>
           {!exam?.can_start && <button className="ghost sm" onClick={load}>Refresh</button>}

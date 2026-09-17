@@ -37,7 +37,7 @@ with ranked as (
          row_number() over (partition by coalesce(section, 'CODING') order by id) as rn,
          ceil(count(*) over (partition by coalesce(section, 'CODING')) * 0.30)    as shared_n
     from quiz.questions
-   where active and ext_code is not null
+   where active and ext_code is not null and question_set = 'recruitment'
 )
 update quiz.questions q
    set round_pool = case when r.rn <= r.shared_n then null

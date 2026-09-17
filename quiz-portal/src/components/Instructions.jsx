@@ -3,17 +3,20 @@ import { rpc } from '../lib/api'
 
 export const HELPLINE = '9166220353'
 
-let cached = null
-/** The display settings the instructions quote (questions, minutes, limits). Readable before sign-in. */
-export function useExamInfo(initial) {
-  const [info, setInfo] = useState(initial || cached)
+const cached = {}
+/** The display settings the instructions quote (questions, minutes, limits). Readable before sign-in.
+ *  round: 'recruitment' for the recruitment page; omitted for the open quiz page. */
+export function useExamInfo(round) {
+  const key = round || 'open'
+  const [info, setInfo] = useState(cached[key] || null)
   useEffect(() => {
-    if (initial || cached) return
+    if (cached[key]) return
     let alive = true
-    rpc('exam_info', {}).then(d => { cached = d; if (alive) setInfo(d) }).catch(() => {})
+    rpc('exam_info', round ? { p_round: round } : {})
+      .then(d => { cached[key] = d; if (alive) setInfo(d) }).catch(() => {})
     return () => { alive = false }
-  }, [initial])
-  return initial || info
+  }, [key, round])
+  return info
 }
 
 /** The exam rules. One copy, shown on the sign-in pages and on the start screen. */

@@ -38,7 +38,7 @@ update quiz.allowlist a
 
 -- 3. remove every other batch (now guaranteed empty)
 delete from quiz.batches
- where name not in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)', 'Public Quiz', 'Open Quiz');
+ where name not in ('Round 1', 'Round 2', 'Round 3', 'Round 4 (Backup)', 'Public Quiz', 'Open Quiz', 'Open Quiz (pending approval)');
 
 -- 4. confirm: this must show exactly four rows
 select b.name, b.is_open, b.window_minutes,

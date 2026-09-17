@@ -234,7 +234,10 @@ begin
     'batch', case when v_batch.id is null then null else json_build_object(
        'id', v_batch.id, 'name', v_batch.name, 'is_open', v_batch.is_open,
        'starts_at', v_batch.starts_at,
+       'paper_mcq', v_batch.paper_mcq, 'paper_coding', v_batch.paper_coding,
        'duration_minutes', coalesce(v_batch.duration_minutes, v_cfg.duration_minutes)) end,
+    'open_quiz_approval', (select o.approval from quiz.open_quiz_students o
+                            where o.roll_no = v_student.roll_no),
     'can_start', (v_cfg.exam_open and coalesce(v_batch.is_open, false)),
     'attempt', case when v_att.id is null then null else json_build_object(
        'id', v_att.id, 'status', v_att.status, 'started_at', v_att.started_at,
