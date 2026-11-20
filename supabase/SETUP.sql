@@ -226,6 +226,19 @@ alter table quiz.screening_teams add column if not exists leader_phone text;
 create unique index if not exists screening_teams_phone_uq
   on quiz.screening_teams (leader_phone) where leader_phone is not null;
 
+-- copy / paste protection: blocked attempts and tab departures counted during the sprint
+alter table quiz.screening_teams add column if not exists paste_attempts int not null default 0;
+alter table quiz.screening_teams add column if not exists copy_attempts  int not null default 0;
+alter table quiz.screening_teams add column if not exists bulk_inserts   int not null default 0;
+alter table quiz.screening_teams add column if not exists tab_switches   int not null default 0;
+alter table quiz.screening_teams add column if not exists fullscreen_exits int not null default 0;
+
+-- Google sign-in: the Vercel function verifies the Google / Firebase ID token, then calls
+-- screening_login_federated with a shared secret. Only the secret's SHA-256 is stored here;
+-- null = Google sign-in switched off.
+alter table quiz.screening_config add column if not exists federation_secret_hash text;
+alter table quiz.screening_accounts add column if not exists provider text not null default 'password';
+
 -- ---------- team leader accounts (any email address) ----------
 create table if not exists quiz.screening_accounts (
   email         text primary key,
@@ -600,6 +613,44 @@ begin
   return quiz.screening_payload(v_email);
 end $$;
 
+-- Counts from the writing screen's copy / paste / fullscreen guard. Accepted only while this
+-- team's clock is running; each report is capped so a script cannot inflate (or overflow) them.
+drop function if exists public.screening_report_integrity(uuid, int, int, int, int);
+create or replace function public.screening_report_integrity(p_token uuid, p_paste int, p_copy int,
+                                                             p_bulk int, p_tab int, p_fullscreen int default 0)
+returns void language plpgsql security definer set search_path = quiz, public as $$
+declare v_email text := quiz.leader_from_token(p_token);
+begin
+  update quiz.screening_teams
+     set paste_attempts = least(paste_attempts + greatest(0, least(coalesce(p_paste, 0), 200)), 100000),
+         copy_attempts  = least(copy_attempts  + greatest(0, least(coalesce(p_copy,  0), 200)), 100000),
+         bulk_inserts   = least(bulk_inserts   + greatest(0, least(coalesce(p_bulk,  0), 200)), 100000),
+         tab_switches   = least(tab_switches   + greatest(0, least(coalesce(p_tab,   0), 200)), 100000),
+         fullscreen_exits = least(fullscreen_exits + greatest(0, least(coalesce(p_fullscreen, 0), 200)), 100000)
+   where email = v_email and started_at is not null and submitted_at is null
+     and now() <= deadline + quiz.screening_grace();
+end $$;
+
+-- Google sign-in, called only by the Vercel function after it has verified Google's token.
+-- Creates the account on first use (no password; an admin can set one later if needed).
+create or replace function public.screening_login_federated(p_secret text, p_email text, p_provider text)
+returns json language plpgsql security definer set search_path = quiz, extensions, public as $$
+declare v_hash text := (select federation_secret_hash from quiz.screening_config where id = 1);
+        v_email text := quiz.normalize_email(p_email);
+begin
+  if v_hash is null or coalesce(p_secret, '') = ''
+     or encode(extensions.digest(p_secret, 'sha256'), 'hex') <> v_hash then
+    raise exception 'FEDERATION_DENIED';
+  end if;
+  if not quiz.email_ok(v_email) then return json_build_object('ok', false, 'code', 'EMAIL_INVALID'); end if;
+  insert into quiz.screening_accounts (email, password_hash, provider, created_ip)
+  values (v_email, quiz.hash_password(gen_random_uuid()::text || gen_random_uuid()::text),
+          left(coalesce(p_provider, 'google'), 20), quiz.client_ip())
+  on conflict (email) do nothing;
+  perform quiz.audit(v_email, 'SCREENING_LOGIN_FEDERATED', p_provider, null);
+  return quiz.leader_session(v_email);
+end $$;
+
 -- =====================================================================
 -- Admin API
 -- =====================================================================
@@ -687,7 +738,8 @@ end $$;
 revoke execute on function public.screening_signup(text, text), public.screening_login(text, text),
   public.screening_logout(uuid), public.screening_state(uuid),
   public.screening_register(uuid, text, text, text, text), public.screening_start(uuid),
-  public.screening_save(uuid, text[], boolean),
+  public.screening_save(uuid, text[], boolean), public.screening_report_integrity(uuid, int, int, int, int, int),
+  public.screening_login_federated(text, text, text),
   public.admin_screening_settings(uuid, boolean, int), public.admin_screening_reopen(uuid, text, int),
   public.admin_screening_set_password(uuid, text, text), public.admin_screening_delete(uuid, text)
   from public;
@@ -698,6 +750,8 @@ grant execute on function public.screening_state(uuid)                         t
 grant execute on function public.screening_register(uuid, text, text, text, text) to anon, authenticated;
 grant execute on function public.screening_start(uuid)                         to anon, authenticated;
 grant execute on function public.screening_save(uuid, text[], boolean)         to anon, authenticated;
+grant execute on function public.screening_report_integrity(uuid, int, int, int, int, int) to anon, authenticated;
+grant execute on function public.screening_login_federated(text, text, text)    to anon, authenticated;
 grant execute on function public.admin_screening_settings(uuid, boolean, int)  to anon, authenticated;
 grant execute on function public.admin_screening_reopen(uuid, text, int)       to anon, authenticated;
 grant execute on function public.admin_screening_set_password(uuid, text, text) to anon, authenticated;
@@ -865,6 +919,9 @@ begin
         'submitted_at', t.submitted_at, 'submit_reason', t.submit_reason,
         'last_saved_at', t.last_saved_at, 'save_count', t.save_count,
         'reopened_count', t.reopened_count, 'answers', to_json(t.answers),
+        'integrity', json_build_object('paste', t.paste_attempts, 'copy', t.copy_attempts,
+                                       'bulk', t.bulk_inserts, 'tab', t.tab_switches,
+                                       'fullscreen', t.fullscreen_exits),
         'ai', case when j.email is null then null else json_build_object(
             'total', j.total, 'max_total', j.max_total, 'recommendation', j.recommendation,
             'scores', j.scores, 'summary', j.summary, 'strengths', j.strengths, 'concerns', j.concerns,

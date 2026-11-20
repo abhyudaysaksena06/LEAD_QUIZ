@@ -2,7 +2,7 @@
 
 The written screening round for **Case File 07: The Ghost Customer**.
 
-- **Team leaders** create an account with **any email address** and a password. To complete
+- **Team leaders** sign in with **Google** or create an account with **any email address** and a password. To complete
   sign-in they enter the **team leader's full name** and **mobile number**, the **team name**, and
   pick **one track**: **Product**, **Consulting** or **Finance** (changeable until Start).
   One account = one team; team names and mobile numbers are unique.
@@ -61,7 +61,27 @@ npm run dev               # http://localhost:5173
 `npm run build` and host `dist/`. `vercel.json` and `netlify.toml` are included (single-page
 routing). Set the `VITE_` variables from `.env.example` in the host's dashboard.
 
-## 2a. AI judge
+## 2a. Copy / paste protection and fullscreen
+
+During the 15-minute sprint the page blocks paste (keyboard, menu, drag-and-drop, mobile keyboards),
+copy and cut, text selection outside the answer boxes, the right-click menu, and grammar /
+AI-writing extensions on the answer boxes. Start opens fullscreen; leaving it covers the answers
+until the leader returns (the timer keeps running). Every blocked attempt, large block of text
+appearing at once, tab/window departure and fullscreen exit is counted on the server and shown
+in Admin (row warning, team view, *Most integrity flags first* sort, CSV columns). A browser
+cannot stop someone retyping from another device; this removes the easy routes and records the rest.
+
+## 2b. Google sign-in (optional)
+
+`api/google-login.js` verifies the Google / Firebase ID token on the server (Google's keys, this
+Firebase project as audience and issuer, verified email) and then opens a portal session through
+`screening_login_federated`, which accepts only the shared secret `SCREENING_SERVER_SECRET`
+(Vercel env; its SHA-256 lives in `quiz.screening_config.federation_secret_hash`). Supabase is
+never asked to trust Firebase tokens. Needs the `VITE_FIREBASE_*` variables, Google enabled under
+Firebase → Authentication → Sign-in method, and the site's domain under Authentication → Settings
+→ Authorized domains.
+
+## 2c. AI judge
 
 Grading runs in a Vercel function, `api/judge.js`, so the Anthropic API key never reaches a
 browser. Only a signed-in admin can start it; the database checks the admin session at every step.

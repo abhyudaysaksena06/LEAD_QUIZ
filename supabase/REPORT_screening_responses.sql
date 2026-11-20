@@ -21,7 +21,8 @@ select
   t.answers[2]                                                   as q2_answer,
   tr.prompts -> 2 ->> 'title'                                    as q3_prompt,
   t.answers[3]                                                   as q3_answer,
-  t.reopened_count                                               as times_reopened
+  t.reopened_count                                               as times_reopened,
+  t.paste_attempts, t.copy_attempts, t.bulk_inserts as large_inserts, t.tab_switches as left_tab, t.fullscreen_exits
 from quiz.screening_teams t
 join quiz.screening_tracks tr on tr.id = t.track
 order by tr.sort, t.team_name;

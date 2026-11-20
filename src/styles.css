@@ -313,3 +313,14 @@ td.mono { font-family: var(--mono); }
 .sc-modes button.active { background: #fff; color: var(--brand); box-shadow: 0 1px 2px rgba(16,24,40,.08); }
 .sc-check { display: flex; gap: 8px; align-items: center; font-weight: 400; margin-top: 10px; }
 .sc-check input { width: auto; margin: 0; accent-color: var(--brand); }
+
+/* writing screen: nothing can be selected for copying except inside your own answer boxes */
+.sc-protected { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.sc-protected textarea { -webkit-user-select: text; user-select: text; }
+
+.sc-google { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 11px 16px;
+  font-size: 15px; background: #fff; color: var(--ink); border-color: var(--line); margin-top: 6px; }
+.sc-google:hover:not(:disabled) { background: var(--brand-soft); }
+.sc-or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 14px 0 6px; }
+.sc-or::before, .sc-or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.overlay.sc-fs-cover { z-index: 58; background: rgba(12,20,30,.92); }

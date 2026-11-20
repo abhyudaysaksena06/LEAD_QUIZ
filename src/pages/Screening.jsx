@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { rpc, store } from '../lib/api'
+import { firebaseConfigured, googleIdToken } from '../lib/firebase'
+
+const fullscreenSupported = () => typeof document !== 'undefined' && document.fullscreenEnabled &&
+  typeof document.documentElement.requestFullscreen === 'function'
+const enterFullscreen = () => {
+  if (!fullscreenSupported() || document.fullscreenElement) return Promise.resolve()
+  return document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {})
+}
 
 /**
  * PRIMUS 2026 screening round — the team leader's page.
@@ -118,6 +126,11 @@ function ScreeningShell({ cfg, children }) {
           <li>Answers <b>save automatically</b> every few seconds. When the timer reaches 0:00 your
             response is submitted with whatever has been saved.</li>
           <li>Answer all three prompts. Bullet points are fine.</li>
+          <li><b>The sprint runs in fullscreen.</b> If you leave fullscreen the answers are hidden
+            until you return; the timer keeps running.</li>
+          <li><b>Write your own answers.</b> During the sprint, <b>copying, cutting, pasting and the
+            right-click menu are disabled</b>. Every attempt, every time you leave fullscreen, and every
+            time you leave the tab or window is recorded and shown to the organisers.</li>
           <li>Use a laptop, and keep the response open in <b>one tab only</b>.</li>
         </ul>
       </section>
@@ -135,6 +148,26 @@ function AuthCard({ onSignedIn, notice }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const signup = mode === 'signup'
+
+  async function google() {
+    setError(''); setBusy(true)
+    try {
+      const idToken = await googleIdToken()
+      const r = await fetch('/api/google-login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                   body: JSON.stringify({ idToken }) })
+      let body = null
+      try { body = await r.json() } catch { /* not JSON */ }
+      if (!r.ok || !body?.ok) throw new Error(body?.message || 'Google sign-in failed. Use email and password instead.')
+      onSignedIn(body)
+    } catch (err) {
+      const m = String(err?.message || err?.code || '')
+      if (!/popup-closed|cancelled-popup|user-cancelled/.test(m)) {
+        setError(/unauthorized-domain/.test(m)
+          ? 'Google sign-in is not enabled for this website yet. Use email and password, or ask the organisers.'
+          : m || 'Google sign-in failed.')
+      }
+    } finally { setBusy(false) }
+  }
 
   async function submit(e) {
     e.preventDefault()
@@ -155,6 +188,13 @@ function AuthCard({ onSignedIn, notice }) {
       <div className="brand-mark">PRIMUS 2026</div>
       <h1>{signup ? 'Create your account' : 'Sign in'}</h1>
       <p className="muted">Team leaders only. Use any email address you can be reached on.</p>
+      {firebaseConfigured && <>
+        <button type="button" className="sc-google" onClick={google} disabled={busy}>
+          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+          {busy ? 'Please wait…' : 'Continue with Google'}
+        </button>
+        <div className="sc-or"><span>or use email and password</span></div>
+      </>}
       <div className="sc-modes" role="tablist">
         <button type="button" role="tab" aria-selected={signup} className={signup ? 'active' : ''}
                 onClick={() => { setMode('signup'); setError('') }}>New team leader</button>
@@ -264,7 +304,8 @@ function ReadyCard({ token, data, onEdit, onStarted, onSignOut }) {
   const mins = data.config.duration_minutes
 
   async function start() {
-    if (!window.confirm(`Start now? Your ${mins}-minute timer begins immediately and cannot be paused. Your details and track (${t.track_label}) will be locked.`)) return
+    if (!window.confirm(`Start now? Your ${mins}-minute timer begins immediately and cannot be paused. Your details and track (${t.track_label}) will be locked. The sprint opens in fullscreen.`)) return
+    enterFullscreen()            // must run in the click, before anything is awaited
     setBusy(true); setError('')
     try { onStarted(await rpc('screening_start', { p_token: token })) }
     catch (err) { setError(err.message) }
@@ -299,6 +340,118 @@ function ReadyCard({ token, data, onEdit, onStarted, onSignOut }) {
 }
 
 const words = s => (s.trim() ? s.trim().split(/\s+/).length : 0)
+
+// A single change that adds more than this many characters, without a paste, is unusual for typing
+// (autocorrect adds a word or two) and is recorded as a large insert.
+const BULK_INSERT_CHARS = 60
+const PASTE_INPUT_TYPES = new Set(['insertFromPaste', 'insertFromPasteAsQuotation', 'insertFromDrop', 'insertFromYank'])
+
+/**
+ * Copy / paste protection for the writing screen. Blocks paste, drop, copy, cut and the context
+ * menu anywhere on the page, and counts the attempts plus times the leader left the tab. The counts
+ * are sent to the server with the autosave and shown to the organisers. A browser cannot stop
+ * someone retyping from another device — this removes the easy routes and records the rest.
+ */
+function useIntegrityGuard(token, active) {
+  const counts = useRef({ paste: 0, copy: 0, bulk: 0, tab: 0, fullscreen: 0 })
+  const [notice, setNotice] = useState('')
+  const noticeTimer = useRef(null)
+
+  const warn = useCallback(text => {
+    setNotice(text)
+    clearTimeout(noticeTimer.current)
+    noticeTimer.current = setTimeout(() => setNotice(''), 3500)
+  }, [])
+
+  const record = useCallback((kind, text) => {
+    counts.current[kind]++
+    if (text) warn(text)
+  }, [warn])
+
+  // send the counts gathered since the last flush; on failure put them back for the next try
+  const flush = useCallback(async () => {
+    const c = counts.current
+    if (!c.paste && !c.copy && !c.bulk && !c.tab && !c.fullscreen) return
+    counts.current = { paste: 0, copy: 0, bulk: 0, tab: 0, fullscreen: 0 }
+    try {
+      await rpc('screening_report_integrity', { p_token: token, p_paste: c.paste, p_copy: c.copy, p_bulk: c.bulk,
+                                                p_tab: c.tab, p_fullscreen: c.fullscreen })
+    } catch {
+      for (const k of Object.keys(c)) counts.current[k] += c[k]
+    }
+  }, [token])
+
+  useEffect(() => {
+    if (!active) return
+    const block = (kind, text) => e => { e.preventDefault(); record(kind, text) }
+    const onPaste = block('paste', 'Pasting is disabled in the screening round. This attempt has been recorded.')
+    const onDrop = block('paste', 'Dropping text is disabled in the screening round. This attempt has been recorded.')
+    const onCopy = block('copy', 'Copying is disabled in the screening round. This attempt has been recorded.')
+    const onCut = block('copy', 'Cutting is disabled in the screening round. This attempt has been recorded.')
+    const onDragStart = e => e.preventDefault()
+    const onDragOver = e => e.preventDefault()
+    const onMenu = e => { e.preventDefault(); warn('The right-click menu is disabled during the sprint.') }
+    // some keyboards and extensions insert text without a paste event
+    const onBeforeInput = e => {
+      if (PASTE_INPUT_TYPES.has(e.inputType)) { e.preventDefault(); record('paste', 'Pasting is disabled in the screening round. This attempt has been recorded.') }
+    }
+    // one count per departure: a tab switch fires both blur and visibilitychange
+    let away = false
+    const leave = () => { if (!away) { away = true; record('tab') } }
+    const back = () => {
+      if (away) { away = false; warn('You left the screening tab. This is recorded and shown to the organisers.') }
+    }
+    const onVisibility = () => (document.hidden ? leave() : back())
+
+    const opts = { capture: true }
+    document.addEventListener('paste', onPaste, opts)
+    document.addEventListener('drop', onDrop, opts)
+    document.addEventListener('copy', onCopy, opts)
+    document.addEventListener('cut', onCut, opts)
+    document.addEventListener('dragstart', onDragStart, opts)
+    document.addEventListener('dragover', onDragOver, opts)
+    document.addEventListener('contextmenu', onMenu, opts)
+    document.addEventListener('beforeinput', onBeforeInput, opts)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', leave)
+    window.addEventListener('focus', back)
+    const t = setInterval(flush, 3000)
+    return () => {
+      document.removeEventListener('paste', onPaste, opts)
+      document.removeEventListener('drop', onDrop, opts)
+      document.removeEventListener('copy', onCopy, opts)
+      document.removeEventListener('cut', onCut, opts)
+      document.removeEventListener('dragstart', onDragStart, opts)
+      document.removeEventListener('dragover', onDragOver, opts)
+      document.removeEventListener('contextmenu', onMenu, opts)
+      document.removeEventListener('beforeinput', onBeforeInput, opts)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', leave)
+      window.removeEventListener('focus', back)
+      clearInterval(t)
+      clearTimeout(noticeTimer.current)
+      flush()
+    }
+  }, [active, record, warn, flush])
+
+  const recordBulk = useCallback(() => record('bulk'), [record])
+
+  // fullscreen: count every exit; while not in fullscreen the answers are covered (see Writing)
+  const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement)
+  useEffect(() => {
+    if (!active || !fullscreenSupported()) return
+    const onChange = () => {
+      const now = !!document.fullscreenElement
+      setFullscreen(now)
+      if (!now) record('fullscreen', 'You left fullscreen. This is recorded and shown to the organisers.')
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [active, record])
+  const needsFullscreen = active && fullscreenSupported() && !fullscreen
+
+  return useMemo(() => ({ notice, recordBulk, flush, needsFullscreen }), [notice, recordBulk, flush, needsFullscreen])
+}
 const fmtClock = ms => {
   const s = Math.max(0, Math.ceil(ms / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
@@ -325,6 +478,7 @@ function Writing({ token, data, offset, onState, onReload }) {
   const latest = useRef(answers)
   const finishing = useRef(false)
   const saving = useRef(false)
+  const guard = useIntegrityGuard(token, !submitting)
 
   useEffect(() => { latest.current = answers }, [answers])
 
@@ -348,9 +502,11 @@ function Writing({ token, data, offset, onState, onReload }) {
     if (!auto && !window.confirm('Submit your response now? You cannot edit it afterwards.')) return
     finishing.current = true
     setSubmitting(true); setError('')
+    await guard.flush()
     try {
       const d = await rpc('screening_save', { p_token: token, p_answers: latest.current, p_final: true })
       store.del(draftKey)
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
       onState(d)
     } catch (e) {
       if (e.code?.startsWith('SCREENING_') || e.code === 'SESSION_INVALID') { if (e.code !== 'SESSION_INVALID') store.del(draftKey); onReload(); return }
@@ -359,7 +515,7 @@ function Writing({ token, data, offset, onState, onReload }) {
       // the clock retries an automatic submit by itself; give the network a moment first
       setTimeout(() => { finishing.current = false }, auto ? 3000 : 0)
     }
-  }, [token, draftKey, onState, onReload])
+  }, [token, draftKey, onState, onReload, guard])
 
   // autosave every 3 seconds while there are unsaved changes
   useEffect(() => {
@@ -384,6 +540,7 @@ function Writing({ token, data, offset, onState, onReload }) {
   }, [])
 
   function change(i, v) {
+    if (v.length - (answers[i] || '').length > BULK_INSERT_CHARS) guard.recordBulk()
     const next = answers.map((a, j) => (j === i ? v : a))
     setAnswers(next)
     dirty.current = true
@@ -395,7 +552,19 @@ function Writing({ token, data, offset, onState, onReload }) {
   const timerCls = left <= 60_000 ? 'crit' : left <= 180_000 ? 'warn' : ''
 
   return (
-    <div className="sc-writing">
+    <div className="sc-writing sc-protected">
+      {guard.notice && <div className="toast" role="alert">{guard.notice}</div>}
+      {guard.needsFullscreen && (
+        <div className="overlay sc-fs-cover">
+          <div className="card">
+            <h2>Return to fullscreen</h2>
+            <p>The sprint runs in fullscreen. Your answers are saved and the timer is still running
+              — <b>{fmtClock(left)}</b> left.</p>
+            <p className="small muted">Leaving fullscreen is recorded and shown to the organisers.</p>
+            <button className="lg" onClick={enterFullscreen}>Go back to fullscreen</button>
+          </div>
+        </div>
+      )}
       <header className="exam-top sc-top">
         <span className="title">{data.config.event_title}</span>
         <span className="badge in_progress">{data.team.track_label}</span>
@@ -424,7 +593,10 @@ function Writing({ token, data, offset, onState, onReload }) {
               <div className="q-head"><span className="q-num">{i + 1}.</span><h3 style={{ margin: 0 }}>{p.title}</h3></div>
               <p className="muted">{p.body}</p>
               <textarea value={answers[i]} onChange={e => change(i, e.target.value)} maxLength={8000}
-                        rows={9} placeholder="Type your answer…" disabled={submitting} />
+                        rows={9} placeholder="Type your answer…" disabled={submitting}
+                        autoComplete="off" spellCheck
+                        data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"
+                        data-lt-active="false" />
               <div className="small muted sc-count">{words(answers[i])} words</div>
             </section>
           ))}

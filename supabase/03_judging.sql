@@ -157,6 +157,9 @@ begin
         'submitted_at', t.submitted_at, 'submit_reason', t.submit_reason,
         'last_saved_at', t.last_saved_at, 'save_count', t.save_count,
         'reopened_count', t.reopened_count, 'answers', to_json(t.answers),
+        'integrity', json_build_object('paste', t.paste_attempts, 'copy', t.copy_attempts,
+                                       'bulk', t.bulk_inserts, 'tab', t.tab_switches,
+                                       'fullscreen', t.fullscreen_exits),
         'ai', case when j.email is null then null else json_build_object(
             'total', j.total, 'max_total', j.max_total, 'recommendation', j.recommendation,
             'scores', j.scores, 'summary', j.summary, 'strengths', j.strengths, 'concerns', j.concerns,

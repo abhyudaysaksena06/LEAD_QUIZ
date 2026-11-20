@@ -14,6 +14,9 @@ const REC = {
   reject: { label: 'Reject', cls: 'blocked' },
 }
 const CRITERIA = ['evidence_discipline', 'track_depth', 'investor_call', 'clarity']
+const INTEGRITY = [['paste', 'paste'], ['copy', 'copy'], ['bulk', 'large insert'], ['tab', 'left tab'], ['fullscreen', 'left fullscreen']]
+const integrityTotal = t => INTEGRITY.reduce((n, [k]) => n + Number(t.integrity?.[k] || 0), 0)
+const integrityText = t => INTEGRITY.filter(([k]) => t.integrity?.[k] > 0).map(([k, label]) => `${t.integrity[k]} ${label}`).join(' · ')
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const STOP_ALL = ['JUDGE_NOT_CONFIGURED', 'JUDGE_KEY_INVALID', 'ADMIN_SESSION_INVALID', 'DB_NOT_CONFIGURED']
 
@@ -79,7 +82,8 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
       (track === 'all' || x.track === track) &&
       (status === 'all' || x.status === status) &&
       (!t || [x.team_name, x.leader_name, x.email, x.leader_phone].some(v => (v || '').toLowerCase().includes(t))))
-      .sort((a, b) => sort === 'ai' ? (b.ai?.total ?? -1) - (a.ai?.total ?? -1) : 0)
+      .sort((a, b) => sort === 'ai' ? (b.ai?.total ?? -1) - (a.ai?.total ?? -1)
+                    : sort === 'integrity' ? integrityTotal(b) - integrityTotal(a) : 0)
   }, [teams, q, track, status, sort])
 
   async function act(fn, args) {
@@ -164,6 +168,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
                     'registered_at', 'started_at', 'submitted_at',
                     'q1_prompt', 'q1_answer', 'q1_words', 'q2_prompt', 'q2_answer', 'q2_words',
                     'q3_prompt', 'q3_answer', 'q3_words', 'times_reopened',
+                    'paste_attempts', 'copy_attempts', 'large_inserts', 'left_tab', 'left_fullscreen',
                     'ai_total', 'ai_max', 'ai_recommendation', 'ai_evidence_discipline', 'ai_track_depth',
                     'ai_investor_call', 'ai_clarity', 'ai_summary', 'ai_strengths', 'ai_concerns', 'ai_flags',
                     'ai_out_of_date', 'ai_judged_at']
@@ -177,6 +182,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
               when(x.registered_at), when(x.started_at), when(x.submitted_at),
               p[0]?.title, a[0], words(a[0]), p[1]?.title, a[1], words(a[1]), p[2]?.title, a[2], words(a[2]),
               x.reopened_count,
+              ...INTEGRITY.map(([k]) => x.integrity?.[k] ?? 0),
               x.ai?.total, x.ai?.max_total, x.ai?.recommendation,
               ...CRITERIA.map(k => x.ai?.scores?.[k]?.score),
               x.ai?.summary, x.ai?.strengths, x.ai?.concerns, (x.ai?.integrity_flags || []).join('; '),
@@ -243,6 +249,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
         <select value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort">
           <option value="registered">Order registered</option>
           <option value="ai">AI score, high → low</option>
+          <option value="integrity">Most integrity flags first</option>
         </select>
         <span className="spacer" />
         <span className="small muted">{rows.length} shown</span>
@@ -283,6 +290,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
                     {leftMs != null && <div className="small muted">{leftMs > 0 ? `${Math.floor(leftMs / 60000)}:${String(Math.floor(leftMs / 1000) % 60).padStart(2, '0')} left` : 'closing…'}</div>}
                     {x.submit_reason === 'TIME_UP' && <div className="small muted">time ran out</div>}
                     {x.reopened_count > 0 && <div className="small muted">reopened ×{x.reopened_count}</div>}
+                    {integrityTotal(x) > 0 && <div className="small" style={{ color: 'var(--warn)' }} title="Blocked copy / paste attempts and times the leader left the tab or fullscreen">⚠ {integrityText(x)}</div>}
                   </td>
                   <td>{clock(x.started_at)}</td>
                   <td>{clock(x.submitted_at)}</td>
@@ -416,6 +424,9 @@ function TeamDrawer({ team, track, rubric, busy, judging, onJudge, onClose, onRe
                 <dt>Submitted</dt><dd>{when(team.submitted_at) || '—'}
                   {team.submit_reason === 'TIME_UP' && ' (time ran out)'}</dd>
                 <dt>Autosaves</dt><dd>{team.save_count}</dd>
+                <dt>Integrity</dt><dd>{integrityTotal(team) > 0
+                  ? <span style={{ color: 'var(--warn)' }}>{integrityText(team)}</span>
+                  : <span className="muted">no blocked copy / paste, never left the tab or fullscreen</span>}</dd>
               </dl>
             </div>
             <div className="section">
