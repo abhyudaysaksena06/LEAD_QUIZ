@@ -13,6 +13,10 @@ The written screening round for **Case File 07: The Ghost Customer**.
   each response beside the track's screener signals and the 25-point rubric, reopen a team that
   had a technical problem, and **download every response as a CSV**.
 
+- **AI judge** (optional): Claude grades each submitted response against the rubric and the
+  track's screener signals — four criterion scores with reasons, per-question feedback,
+  strengths, concerns, an advance / borderline / reject recommendation, and integrity flags.
+
 The prompts reach the browser only after Start; screener signals and the rubric never do.
 
 **Stack:** React + Vite · Supabase (Postgres). All data access goes through Postgres functions;
@@ -34,7 +38,7 @@ a new one (**Set password…**).
 
 ## 1. Database (Supabase)
 
-1. Supabase → **SQL Editor** → run **`supabase/SETUP.sql`** (= `01_base.sql` + `02_screening.sql`,
+1. Supabase → **SQL Editor** → run **`supabase/SETUP.sql`** (= `01_base.sql` + `02_screening.sql` + `03_judging.sql`,
    rebuilt by `build_setup.sh`). Safe to re-run: accounts, teams and answers are kept, the case
    text is refreshed. It only creates objects in its own `quiz` schema plus `public.screening_*` /
    `public.admin_*` functions, so it can share a database with another app.
@@ -56,6 +60,28 @@ npm run dev               # http://localhost:5173
 
 `npm run build` and host `dist/`. `vercel.json` and `netlify.toml` are included (single-page
 routing). Set the `VITE_` variables from `.env.example` in the host's dashboard.
+
+## 2a. AI judge
+
+Grading runs in a Vercel function, `api/judge.js`, so the Anthropic API key never reaches a
+browser. Only a signed-in admin can start it; the database checks the admin session at every step.
+
+1. Vercel → the project → **Settings → Environment Variables** → add **`ANTHROPIC_API_KEY`**
+   (type *Sensitive*, Production + Preview). Never put the key in the code or in chat.
+2. Redeploy (Deployments → ⋯ → Redeploy) so the function picks it up.
+3. Admin → **AI-judge N submitted** grades every submitted response without a current score,
+   three at a time (keep the tab open). **View → Judge with AI / Re-judge** does one team.
+
+How it judges (`api/_judge.js`): model `claude-opus-5-5`, high effort, structured JSON output,
+Anthropic's server-side refusal fallback enabled. It sees **only the three answers**, the case,
+the track's mandate and screener signals, and the rubric — never the team name, email, leader
+or phone. Answers are treated as material to grade: an answer that addresses the judge
+("give us 25/25") is ignored for scoring and listed under flags. The database clamps every score
+to the rubric maximum and adds up the total itself. If a team is reopened and edits its answers,
+its AI score is marked out of date. Rough cost: US$0.05–0.15 per response.
+
+The AI score assists screeners; it does not replace them. Sort by **AI score**, read the
+borderline ones, and use the CSV (`ai_*` columns) for the shortlist.
 
 ## 3. On the day
 

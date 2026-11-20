@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { rpc } from '../lib/api'
 
 const STATUS = {
@@ -8,6 +8,31 @@ const STATUS = {
 }
 const words = s => (s && s.trim() ? s.trim().split(/\s+/).length : 0)
 const when = iso => (iso ? new Date(iso).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' }) : '')
+const REC = {
+  advance: { label: 'Advance', cls: 'submitted' },
+  borderline: { label: 'Borderline', cls: 'paused' },
+  reject: { label: 'Reject', cls: 'blocked' },
+}
+const CRITERIA = ['evidence_discipline', 'track_depth', 'investor_call', 'clarity']
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+const STOP_ALL = ['JUDGE_NOT_CONFIGURED', 'JUDGE_KEY_INVALID', 'ADMIN_SESSION_INVALID', 'DB_NOT_CONFIGURED']
+
+/** One AI judgement via the server function (the API key lives only there). */
+async function judgeTeam(token, email) {
+  let r
+  try {
+    r = await fetch('/api/judge', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ token, email }) })
+  } catch { throw Object.assign(new Error('Could not reach the AI judge. Check your connection.'), { code: 'NETWORK' }) }
+  let body = null
+  try { body = await r.json() } catch { /* not JSON: e.g. the function is not deployed */ }
+  if (!r.ok || !body?.ok) {
+    throw Object.assign(new Error(body?.message || `The AI judge is not available (HTTP ${r.status}).`),
+                        { code: body?.code || 'JUDGE_UNAVAILABLE' })
+  }
+  return body
+}
+
 const clock = iso => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—')
 
 /** PRIMUS 2026 screening round: every team's registration and written response. */
@@ -22,6 +47,10 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
   const [busy, setBusy] = useState(false)
   const [offset, setOffset] = useState(0)
   const [, tick] = useState(0)
+  const [sort, setSort] = useState('registered')
+  const [judging, setJudging] = useState({})     // email -> true while that team is being judged
+  const [batch, setBatch] = useState(null)       // { done, total, failed, running }
+  const stopRef = useRef(false)
 
   const load = useCallback(async () => {
     try {
@@ -50,7 +79,8 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
       (track === 'all' || x.track === track) &&
       (status === 'all' || x.status === status) &&
       (!t || [x.team_name, x.leader_name, x.email, x.leader_phone].some(v => (v || '').toLowerCase().includes(t))))
-  }, [teams, q, track, status])
+      .sort((a, b) => sort === 'ai' ? (b.ai?.total ?? -1) - (a.ai?.total ?? -1) : 0)
+  }, [teams, q, track, status, sort])
 
   async function act(fn, args) {
     setBusy(true)
@@ -86,11 +116,57 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
     act('admin_screening_set_password', { p_email: email, p_password: pw })
   }
 
+  async function judgeOne(email) {
+    setJudging(j => ({ ...j, [email]: true })); setErr('')
+    try { await judgeTeam(token, email); await load() }
+    catch (e) {
+      if (e.code === 'ADMIN_SESSION_INVALID' && onSessionInvalid) onSessionInvalid()
+      else setErr(`AI judge: ${e.message}`)
+    } finally { setJudging(j => { const n = { ...j }; delete n[email]; return n }) }
+  }
+
+  // Every submitted team without a current AI score, three at a time.
+  async function judgeAll() {
+    const queue = teams.filter(x => x.status === 'submitted' && (!x.ai || x.ai.stale)).map(x => x.email)
+    if (!queue.length) return
+    if (!window.confirm(`Judge ${queue.length} response(s) with AI? Each takes up to a minute and uses the Anthropic API key (roughly US$0.05–0.15 per response). Keep this tab open.`)) return
+    stopRef.current = false; setErr('')
+    const state = { done: 0, total: queue.length, failed: [], running: true }
+    setBatch({ ...state })
+    let fatal = null
+    const worker = async () => {
+      while (queue.length && !stopRef.current && !fatal) {
+        const email = queue.shift()
+        setJudging(j => ({ ...j, [email]: true }))
+        for (let attempt = 0; ; attempt++) {
+          try { await judgeTeam(token, email); break }
+          catch (e) {
+            if (STOP_ALL.includes(e.code)) { fatal = e; break }
+            if (e.code === 'JUDGE_RATE_LIMITED' && attempt < 2) { await sleep(20000); continue }
+            state.failed.push(`${teams.find(x => x.email === email)?.team_name || email}: ${e.message}`); break
+          }
+        }
+        setJudging(j => { const n = { ...j }; delete n[email]; return n })
+        state.done++; setBatch({ ...state })
+      }
+    }
+    await Promise.all([worker(), worker(), worker()])
+    state.running = false; setBatch({ ...state })
+    if (fatal) {
+      if (fatal.code === 'ADMIN_SESSION_INVALID' && onSessionInvalid) onSessionInvalid()
+      else setErr(`AI judge stopped: ${fatal.message}`)
+    }
+    await load()
+  }
+
   function exportCsv() {
     const header = ['team_name', 'leader_name', 'leader_phone', 'leader_email', 'track', 'status', 'how_submitted',
                     'registered_at', 'started_at', 'submitted_at',
                     'q1_prompt', 'q1_answer', 'q1_words', 'q2_prompt', 'q2_answer', 'q2_words',
-                    'q3_prompt', 'q3_answer', 'q3_words', 'times_reopened']
+                    'q3_prompt', 'q3_answer', 'q3_words', 'times_reopened',
+                    'ai_total', 'ai_max', 'ai_recommendation', 'ai_evidence_discipline', 'ai_track_depth',
+                    'ai_investor_call', 'ai_clarity', 'ai_summary', 'ai_strengths', 'ai_concerns', 'ai_flags',
+                    'ai_out_of_date', 'ai_judged_at']
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`
     const lines = rows.map(x => {
       const tr = trackById[x.track] || {}
@@ -100,7 +176,11 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
               x.submit_reason === 'TIME_UP' ? 'time ran out' : x.submit_reason === 'MANUAL' ? 'submitted by team' : '',
               when(x.registered_at), when(x.started_at), when(x.submitted_at),
               p[0]?.title, a[0], words(a[0]), p[1]?.title, a[1], words(a[1]), p[2]?.title, a[2], words(a[2]),
-              x.reopened_count].map(esc).join(',')
+              x.reopened_count,
+              x.ai?.total, x.ai?.max_total, x.ai?.recommendation,
+              ...CRITERIA.map(k => x.ai?.scores?.[k]?.score),
+              x.ai?.summary, x.ai?.strengths, x.ai?.concerns, (x.ai?.integrity_flags || []).join('; '),
+              x.ai ? (x.ai.stale ? 'yes' : 'no') : '', when(x.ai?.judged_at)].map(esc).join(',')
     })
     // the BOM makes Excel read the file as UTF-8, so ₹ and names survive
     const csv = '﻿' + [header.join(','), ...lines].join('\r\n')
@@ -128,6 +208,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
         {tracks.map(t => <div key={t.id} className="stat"><b>{count('track', t.id)}</b><span>{t.label}</span></div>)}
         <div className="stat"><b style={{ color: 'var(--brand)' }}>{count('status', 'writing')}</b><span>Writing now</span></div>
         <div className="stat"><b style={{ color: 'var(--ok)' }}>{count('status', 'submitted')}</b><span>Submitted</span></div>
+        <div className="stat"><b>{teams.filter(x => x.ai && !x.ai.stale).length}</b><span>AI judged</span></div>
       </div>
 
       <div className="section">
@@ -159,20 +240,37 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
           <option value="all">All statuses</option>
           {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
+        <select value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort">
+          <option value="registered">Order registered</option>
+          <option value="ai">AI score, high → low</option>
+        </select>
         <span className="spacer" />
         <span className="small muted">{rows.length} shown</span>
+        {batch?.running
+          ? <button className="danger" onClick={() => { stopRef.current = true }}>Stop AI judging</button>
+          : <button className="ghost" disabled={!(teams.filter(x => x.status === 'submitted' && (!x.ai || x.ai.stale)).length)} onClick={judgeAll}
+                    title="Grades every submitted response that has no current AI score">
+              AI-judge {teams.filter(x => x.status === 'submitted' && (!x.ai || x.ai.stale)).length} submitted</button>}
         <button onClick={exportCsv} disabled={!rows.length}>Download CSV</button>
       </div>
       {err && <div className="error">{err}</div>}
+      {batch && (
+        <div className={`status-box ${batch.failed.length ? 'wait' : 'ok'}`} style={{ marginBottom: 10 }}>
+          {batch.running ? 'AI judging… ' : 'AI judging finished: '}<b>{batch.done}</b> of {batch.total}
+          {batch.failed.length > 0 && <> · {batch.failed.length} failed
+            <ul className="small" style={{ margin: '4px 0 0' }}>{batch.failed.map(f => <li key={f}>{f}</li>)}</ul></>}
+          {!batch.running && <button className="sm ghost" style={{ marginLeft: 8 }} onClick={() => setBatch(null)}>Dismiss</button>}
+        </div>
+      )}
 
       <div className="table-wrap">
         <table>
           <thead><tr>
             <th>Team</th><th>Leader</th><th>Track</th><th>Status</th><th>Started</th><th>Submitted</th>
-            <th>Words (Q1 / Q2 / Q3)</th><th></th>
+            <th>Words (Q1 / Q2 / Q3)</th><th>AI score</th><th></th>
           </tr></thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={8} className="muted">No teams yet.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={9} className="muted">No teams yet.</td></tr>}
             {rows.map(x => {
               const leftMs = x.status === 'writing' ? new Date(x.deadline) - (Date.now() + offset) : null
               return (
@@ -189,6 +287,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
                   <td>{clock(x.started_at)}</td>
                   <td>{clock(x.submitted_at)}</td>
                   <td className="mono">{(x.answers || []).map(words).join(' / ')}</td>
+                  <td><AiCell team={x} judging={!!judging[x.email]} /></td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <button className="sm ghost" onClick={() => setOpen(x.email)}>View</button>
                   </td>
@@ -217,6 +316,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
 
       {viewing && (
         <TeamDrawer team={viewing} track={trackById[viewing.track]} rubric={cfg.rubric} busy={busy}
+                    judging={!!judging[viewing.email]} onJudge={() => judgeOne(viewing.email)}
                     onClose={() => setOpen(null)} onReopen={() => reopen(viewing)}
                     onPassword={() => setPassword(viewing.email)}
                     onDelete={() => remove(viewing.email, `"${viewing.team_name}"`)} />
@@ -225,7 +325,63 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
   )
 }
 
-function TeamDrawer({ team, track, rubric, busy, onClose, onReopen, onPassword, onDelete }) {
+function AiCell({ team, judging }) {
+  if (judging) return <span className="small muted">judging…</span>
+  if (!team.ai) return <span className="muted">—</span>
+  const r = REC[team.ai.recommendation]
+  return (
+    <span title={team.ai.summary || ''}>
+      <b>{team.ai.total}</b><span className="muted">/{team.ai.max_total}</span>{' '}
+      <span className={`badge ${r?.cls}`}>{r?.label}</span>
+      {team.ai.stale && <div className="small" style={{ color: 'var(--warn)' }}>answers changed — re-judge</div>}
+      {team.ai.integrity_flags?.length > 0 && <div className="small" style={{ color: 'var(--bad)' }}>⚑ {team.ai.integrity_flags.length} flag(s)</div>}
+    </span>
+  )
+}
+
+function AiVerdict({ team, judging, onJudge, busy }) {
+  const ai = team.ai
+  const canJudge = team.status === 'submitted'
+  return (
+    <div className="section">
+      <div className="row" style={{ marginBottom: 6 }}>
+        <h3 style={{ margin: 0 }}>AI judge</h3>
+        <span className="spacer" />
+        <button className="sm" disabled={!canJudge || judging || busy} onClick={onJudge}
+                title={canJudge ? '' : 'Only submitted responses can be judged'}>
+          {judging ? 'Judging…' : ai ? 'Re-judge' : 'Judge with AI'}
+        </button>
+      </div>
+      {!ai ? <p className="small muted">{canJudge ? 'Not judged yet.' : 'Available once the team has submitted.'}</p> : <>
+        <p style={{ margin: '4px 0' }}>
+          <b style={{ fontSize: 20 }}>{ai.total}</b><span className="muted">/{ai.max_total}</span>{' '}
+          <span className={`badge ${REC[ai.recommendation]?.cls}`}>{REC[ai.recommendation]?.label}</span>
+        </p>
+        {ai.stale && <div className="status-box wait small">The answers changed after this was judged. Re-judge for a current score.</div>}
+        {ai.integrity_flags?.length > 0 && (
+          <div className="error small"><b>Flags:</b> {ai.integrity_flags.join(' · ')}</div>
+        )}
+        <p className="small">{ai.summary}</p>
+        {CRITERIA.map(k => ai.scores?.[k] && (
+          <div key={k} className="small" style={{ margin: '6px 0' }}>
+            <b>{ai.scores[k].title}: {ai.scores[k].score}/{ai.scores[k].max}</b>
+            <div className="muted">{ai.scores[k].rationale}</div>
+          </div>
+        ))}
+        {ai.strengths && <p className="small"><b>Strengths:</b> {ai.strengths}</p>}
+        {ai.concerns && <p className="small"><b>Concerns:</b> {ai.concerns}</p>}
+        {(ai.question_feedback || []).map(f => (
+          <p key={f.question} className="small"><b>Q{f.question}:</b> {f.feedback}</p>
+        ))}
+        <p className="small muted" style={{ marginBottom: 0 }}>
+          {ai.model} · {when(ai.judged_at)} · run by {ai.judged_by}. The AI saw only the answers, not the team's name or contact details.
+          It assists screeners; the decision is yours.</p>
+      </>}
+    </div>
+  )
+}
+
+function TeamDrawer({ team, track, rubric, busy, judging, onJudge, onClose, onReopen, onPassword, onDelete }) {
   useEffect(() => {
     const k = e => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', k)
@@ -274,6 +430,7 @@ function TeamDrawer({ team, track, rubric, busy, onClose, onReopen, onPassword, 
             </div>
           </div>
           <div>
+            <AiVerdict team={team} judging={judging} onJudge={onJudge} busy={busy} />
             <div className="section">
               <h3>{track?.label} mandate</h3>
               <p className="small">{track?.mandate}</p>

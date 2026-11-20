@@ -446,36 +446,7 @@ end $$;
 -- Admin API
 -- =====================================================================
 
-create or replace function public.admin_screening(p_token uuid)
-returns json language plpgsql security definer set search_path = quiz, public as $$
-declare v_admin text := quiz.admin_from_token(p_token); c quiz.screening_config;
-begin
-  perform quiz.screening_expire();
-  select * into c from quiz.screening_config where id = 1;
-  return json_build_object(
-    'server_now', now(),
-    'config', json_build_object('is_open', c.is_open, 'duration_minutes', c.duration_minutes,
-                                'event_title', c.event_title, 'case_title', c.case_title,
-                                'case_facts', c.case_facts, 'rubric', c.rubric),
-    'tracks', (select json_agg(json_build_object('id', x.id, 'label', x.label, 'subtitle', x.subtitle,
-                                                 'role_brief', x.role_brief, 'prompts', x.prompts,
-                                                 'mandate', x.mandate, 'signals', x.signals)
-                               order by x.sort) from quiz.screening_tracks x),
-    'teams', coalesce((select json_agg(json_build_object(
-        'email', t.email, 'leader_name', t.leader_name, 'leader_phone', t.leader_phone,
-        'team_name', t.team_name, 'track', t.track, 'status', quiz.screening_status(t),
-        'registered_at', t.registered_at, 'started_at', t.started_at, 'deadline', t.deadline,
-        'submitted_at', t.submitted_at, 'submit_reason', t.submit_reason,
-        'last_saved_at', t.last_saved_at, 'save_count', t.save_count,
-        'reopened_count', t.reopened_count, 'answers', to_json(t.answers))
-        order by t.registered_at)
-      from quiz.screening_teams t), '[]'::json),
-    -- signed up but have not completed name / phone / team yet
-    'incomplete', coalesce((select json_agg(json_build_object('email', a.email, 'created_at', a.created_at)
-                                            order by a.created_at desc)
-      from quiz.screening_accounts a
-     where not exists (select 1 from quiz.screening_teams t where t.email = a.email)), '[]'::json));
-end $$;
+-- admin_screening(p_token): see 03_judging.sql (it includes the AI scores)
 
 create or replace function public.admin_screening_settings(p_token uuid, p_is_open boolean,
                                                            p_duration_minutes int)
@@ -558,7 +529,7 @@ end $$;
 revoke execute on function public.screening_signup(text, text), public.screening_login(text, text),
   public.screening_logout(uuid), public.screening_state(uuid),
   public.screening_register(uuid, text, text, text, text), public.screening_start(uuid),
-  public.screening_save(uuid, text[], boolean), public.admin_screening(uuid),
+  public.screening_save(uuid, text[], boolean),
   public.admin_screening_settings(uuid, boolean, int), public.admin_screening_reopen(uuid, text, int),
   public.admin_screening_set_password(uuid, text, text), public.admin_screening_delete(uuid, text)
   from public;
@@ -569,7 +540,6 @@ grant execute on function public.screening_state(uuid)                         t
 grant execute on function public.screening_register(uuid, text, text, text, text) to anon, authenticated;
 grant execute on function public.screening_start(uuid)                         to anon, authenticated;
 grant execute on function public.screening_save(uuid, text[], boolean)         to anon, authenticated;
-grant execute on function public.admin_screening(uuid)                         to anon, authenticated;
 grant execute on function public.admin_screening_settings(uuid, boolean, int)  to anon, authenticated;
 grant execute on function public.admin_screening_reopen(uuid, text, int)       to anon, authenticated;
 grant execute on function public.admin_screening_set_password(uuid, text, text) to anon, authenticated;
