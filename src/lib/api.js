@@ -32,6 +32,7 @@ const FRIENDLY = {
   TEAM_NAME_INVALID: 'Team name must be 2 to 60 characters.',
   TEAM_NAME_TAKEN: 'Another team has already registered that name. Pick a different one.',
   TEAM_SIZE_INVALID: 'Choose how many members your team has (1 to 4).',
+  EMAIL_HAS_TEAM: 'This email already has a registered team.',
   TRACK_INVALID: 'Choose one of the three tracks.',
 }
 

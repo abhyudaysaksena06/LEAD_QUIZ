@@ -109,6 +109,8 @@ borderline ones, and use the CSV (`ai_*` columns) for the shortlist.
   can always finish.
 - **Minutes** applies to teams that start after you save it.
 - **View → Reopen… / Add time…** gives a team extra minutes, keeping their saved answers.
+- **+ Add team** registers a walk-in team on the spot (leader email, name, mobile, team name,
+  members 1–4, track) and shows a generated password to hand over. Works while registration is closed.
 - **Set password…** resets a leader's forgotten password (they are signed out everywhere).
 - Accounts that signed up but never completed sign-in are listed under the table.
 - **Download CSV**: one row per team — team name, leader, mobile, email, track, status, how it was

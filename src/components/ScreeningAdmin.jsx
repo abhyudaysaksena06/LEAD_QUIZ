@@ -51,6 +51,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
   const [offset, setOffset] = useState(0)
   const [, tick] = useState(0)
   const [sort, setSort] = useState('registered')
+  const [adding, setAdding] = useState(false)
   const [judging, setJudging] = useState({})     // email -> true while that team is being judged
   const [batch, setBatch] = useState(null)       // { done, total, failed, running }
   const stopRef = useRef(false)
@@ -258,6 +259,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
           : <button className="ghost" disabled={!(teams.filter(x => x.status === 'submitted' && (!x.ai || x.ai.stale)).length)} onClick={judgeAll}
                     title="Grades every submitted response that has no current AI score">
               AI-judge {teams.filter(x => x.status === 'submitted' && (!x.ai || x.ai.stale)).length} submitted</button>}
+        <button className="success" onClick={() => setAdding(true)}>+ Add team</button>
         <button onClick={exportCsv} disabled={!rows.length}>Download CSV</button>
       </div>
       {err && <div className="error">{err}</div>}
@@ -322,6 +324,8 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
         </details>
       )}
 
+      {adding && <AddTeamDialog token={token} tracks={tracks} onClose={() => setAdding(false)} onSaved={load} />}
+
       {viewing && (
         <TeamDrawer team={viewing} track={trackById[viewing.track]} rubric={cfg.rubric} busy={busy}
                     judging={!!judging[viewing.email]} onJudge={() => judgeOne(viewing.email)}
@@ -330,6 +334,99 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
                     onDelete={() => remove(viewing.email, `"${viewing.team_name}"`)} />
       )}
     </>
+  )
+}
+
+// readable passwords for handing over in person: no 0/O, 1/l/I
+const PW_CHARS = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+function makePassword() {
+  const b = new Uint32Array(10); crypto.getRandomValues(b)
+  return Array.from(b, x => PW_CHARS[x % PW_CHARS.length]).join('')
+}
+
+/** Walk-in registration: the organiser creates the leader's account and team in one go. */
+function AddTeamDialog({ token, tracks, onClose, onSaved }) {
+  const [f, setF] = useState({ email: '', leader: '', phone: '', team: '', size: 0, track: '', password: makePassword() })
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(null)
+  const set = k => e => setF(v => ({ ...v, [k]: e.target.value }))
+
+  async function save(e) {
+    e.preventDefault()
+    if (!f.size) { setErr('Choose the number of team members.'); return }
+    if (!f.track) { setErr('Choose a track.'); return }
+    setBusy(true); setErr('')
+    try {
+      const r = await rpc('admin_screening_create_team', {
+        p_token: token, p_email: f.email.trim(), p_password: f.password, p_leader_name: f.leader,
+        p_phone: f.phone, p_team_name: f.team, p_team_size: f.size, p_track: f.track })
+      setDone({ ...r, password: f.password })
+      onSaved()
+    } catch (e2) { setErr(e2.message) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="overlay above-drawer" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose() }}>
+      <div className="card sc-add">
+        {done ? <>
+          <h2>Team added</h2>
+          <p><b>{done.team_name}</b> is registered and can start when the round is open.</p>
+          <div className="status-box ok">
+            <p style={{ margin: 0 }}>Give the team leader these sign-in details:</p>
+            <dl className="details" style={{ margin: '8px 0 0' }}>
+              <dt>Website</dt><dd>{window.location.origin}</dd>
+              <dt>Email</dt><dd>{done.email}</dd>
+              {done.new_account
+                ? <><dt>Password</dt><dd className="mono">{done.password}</dd></>
+                : <><dt>Password</dt><dd>{f.password ? <span className="mono">{f.password}</span> : 'the one they already chose'}</dd></>}
+            </dl>
+          </div>
+          <p className="small muted">They choose “I have an account” and sign in. The password is not shown again; use “Set password…” on the team if it is lost.</p>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button className="ghost" onClick={() => { setDone(null); setF({ email: '', leader: '', phone: '', team: '', size: 0, track: '', password: makePassword() }) }}>Add another</button>
+            <button onClick={onClose}>Done</button>
+          </div>
+        </> : <form onSubmit={save}>
+          <h2>Add a team</h2>
+          <p className="small muted" style={{ marginTop: -4 }}>For teams registering on the spot. Works even while registration is closed.</p>
+          <div className="sc-add-grid">
+            <div><label htmlFor="ae">Leader’s email</label>
+              <input id="ae" type="email" value={f.email} onChange={set('email')} required autoFocus /></div>
+            <div><label htmlFor="ap">Leader’s mobile</label>
+              <input id="ap" type="tel" value={f.phone} onChange={set('phone')} placeholder="10-digit mobile" required /></div>
+            <div><label htmlFor="al">Leader’s full name</label>
+              <input id="al" value={f.leader} onChange={set('leader')} maxLength={80} required /></div>
+            <div><label htmlFor="at">Team name</label>
+              <input id="at" value={f.team} onChange={set('team')} maxLength={60} required /></div>
+          </div>
+          <label>Number of team members</label>
+          <div className="sc-size" role="radiogroup">
+            {[1, 2, 3, 4].map(n => (
+              <button key={n} type="button" role="radio" aria-checked={f.size === n} className={f.size === n ? 'selected' : ''}
+                      onClick={() => setF(v => ({ ...v, size: n }))}>{n}</button>
+            ))}
+          </div>
+          <label htmlFor="atr">Track</label>
+          <select id="atr" value={f.track} onChange={set('track')} required>
+            <option value="">Choose…</option>
+            {tracks.map(t => <option key={t.id} value={t.id}>{t.label} — {t.subtitle}</option>)}
+          </select>
+          <label htmlFor="apw">Password for the leader</label>
+          <div className="row">
+            <input id="apw" className="mono" value={f.password} onChange={set('password')} maxLength={72} />
+            <button type="button" className="ghost sm" onClick={() => setF(v => ({ ...v, password: makePassword() }))}>New</button>
+          </div>
+          <p className="small muted" style={{ margin: '4px 0 0' }}>At least 8 characters. If this email already signed up without finishing, leave it empty to keep their own password.</p>
+          {err && <div className="error">{err}</div>}
+          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 14 }}>
+            <button type="button" className="ghost" onClick={onClose} disabled={busy}>Cancel</button>
+            <button disabled={busy}>{busy ? 'Adding…' : 'Add team'}</button>
+          </div>
+        </form>}
+      </div>
+    </div>
   )
 }
 

@@ -329,3 +329,7 @@ td.mono { font-family: var(--mono); }
 .sc-size button { background: #fff; color: var(--ink); border: 1px solid var(--line); padding: 9px 0; font-size: 15px; }
 .sc-size button:hover:not(:disabled) { background: var(--brand-soft); border-color: #b9cfea; }
 .sc-size button.selected { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-dark); box-shadow: inset 0 -3px 0 var(--brand); }
+
+.overlay .card.sc-add { max-width: 620px; width: 100%; text-align: left; max-height: calc(100vh - 48px); overflow-y: auto; }
+.sc-add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+@media (max-width: 600px) { .sc-add-grid { grid-template-columns: 1fr; } }

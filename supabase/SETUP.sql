@@ -716,6 +716,55 @@ begin
   perform quiz.audit(v_admin, 'SCREENING_SET_PASSWORD', v_email, null);
 end $$;
 
+-- Walk-in registration by an admin: creates the leader's account (or reuses one that has no team
+-- yet) and the team in one step. Same validation as a leader's own sign-up; works even while
+-- registration is closed. The leader then signs in with this email and password (or Google).
+create or replace function public.admin_screening_create_team(p_token uuid, p_email text, p_password text,
+                                                              p_leader_name text, p_phone text, p_team_name text,
+                                                              p_team_size int, p_track text)
+returns json language plpgsql security definer set search_path = quiz, extensions, public as $$
+declare v_admin text := quiz.admin_from_token(p_token); v_email text := quiz.normalize_email(p_email);
+        v_leader text; v_phone text; v_name text; v_track text; a quiz.screening_accounts;
+begin
+  if not quiz.email_ok(v_email) then raise exception 'EMAIL_INVALID'; end if;
+  v_leader := regexp_replace(btrim(coalesce(p_leader_name, '')), '\s+', ' ', 'g');
+  if length(v_leader) < 2 or length(v_leader) > 80 or v_leader !~ '^[[:alpha:]][[:alpha:] .''-]*$' then
+    raise exception 'LEADER_NAME_INVALID';
+  end if;
+  v_phone := quiz.normalize_phone(p_phone);
+  if v_phone is null then raise exception 'PHONE_INVALID'; end if;
+  v_name := regexp_replace(btrim(coalesce(p_team_name, '')), '\s+', ' ', 'g');
+  if length(v_name) < 2 or length(v_name) > 60 then raise exception 'TEAM_NAME_INVALID'; end if;
+  if p_team_size is null or p_team_size not between 1 and 4 then raise exception 'TEAM_SIZE_INVALID'; end if;
+  v_track := lower(btrim(coalesce(p_track, '')));
+  if not exists (select 1 from quiz.screening_tracks where id = v_track) then raise exception 'TRACK_INVALID'; end if;
+
+  if exists (select 1 from quiz.screening_teams where email = v_email) then raise exception 'EMAIL_HAS_TEAM'; end if;
+  select * into a from quiz.screening_accounts where email = v_email for update;
+  if a.email is null then
+    if length(coalesce(p_password, '')) < 8 or octet_length(p_password) > 72 then raise exception 'PASSWORD_WEAK'; end if;
+    insert into quiz.screening_accounts (email, password_hash, provider)
+    values (v_email, quiz.hash_password(p_password), 'admin');
+  elsif coalesce(p_password, '') <> '' then
+    -- the leader already signed up but never finished: optionally give them this password too
+    if length(p_password) < 8 or octet_length(p_password) > 72 then raise exception 'PASSWORD_WEAK'; end if;
+    update quiz.screening_accounts set password_hash = quiz.hash_password(p_password) where email = v_email;
+  end if;
+
+  begin
+    insert into quiz.screening_teams (email, leader_name, leader_phone, team_name, team_size, track)
+    values (v_email, v_leader, v_phone, v_name, p_team_size, v_track);
+  exception when unique_violation then
+    if exists (select 1 from quiz.screening_teams where leader_phone = v_phone) then raise exception 'PHONE_TAKEN'; end if;
+    raise exception 'TEAM_NAME_TAKEN';
+  end;
+
+  perform quiz.audit(v_admin, 'SCREENING_ADMIN_CREATE_TEAM', v_email,
+                     json_build_object('team_name', v_name, 'track', v_track, 'team_size', p_team_size,
+                                       'new_account', a.email is null)::jsonb);
+  return json_build_object('ok', true, 'email', v_email, 'team_name', v_name, 'new_account', a.email is null);
+end $$;
+
 -- Remove a leader completely: team, response, account and sessions (e.g. a test entry).
 -- A copy of the team and answers is kept in the audit log.
 create or replace function public.admin_screening_delete(p_token uuid, p_email text)
@@ -749,7 +798,8 @@ revoke execute on function public.screening_signup(text, text), public.screening
   public.screening_save(uuid, text[], boolean), public.screening_report_integrity(uuid, int, int, int, int, int),
   public.screening_login_federated(text, text, text),
   public.admin_screening_settings(uuid, boolean, int), public.admin_screening_reopen(uuid, text, int),
-  public.admin_screening_set_password(uuid, text, text), public.admin_screening_delete(uuid, text)
+  public.admin_screening_set_password(uuid, text, text), public.admin_screening_delete(uuid, text),
+  public.admin_screening_create_team(uuid, text, text, text, text, text, int, text)
   from public;
 grant execute on function public.screening_signup(text, text)                  to anon, authenticated;
 grant execute on function public.screening_login(text, text)                   to anon, authenticated;
@@ -763,6 +813,7 @@ grant execute on function public.screening_login_federated(text, text, text)    
 grant execute on function public.admin_screening_settings(uuid, boolean, int)  to anon, authenticated;
 grant execute on function public.admin_screening_reopen(uuid, text, int)       to anon, authenticated;
 grant execute on function public.admin_screening_set_password(uuid, text, text) to anon, authenticated;
+grant execute on function public.admin_screening_create_team(uuid, text, text, text, text, text, int, text) to anon, authenticated;
 grant execute on function public.admin_screening_delete(uuid, text)            to anon, authenticated;
 
 
