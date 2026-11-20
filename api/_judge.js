@@ -3,8 +3,8 @@
 // (Files starting with "_" in api/ are not deployed as their own endpoints.)
 import Anthropic from '@anthropic-ai/sdk'
 
-export const MODEL = 'claude-opus-5-5'
-export const EFFORT = 'high'
+export const MODEL = 'claude-haiku-5-5'
+export const EFFORT = 'medium'
 // models an admin may pick for a side-by-side comparison (never saved)
 export const COMPARE_MODELS = ['claude-opus-5-5', 'claude-haiku-5-5']
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -124,7 +124,7 @@ export async function judge(input, { apiKey, client, model = MODEL, effort = EFF
   const params = {
     model,
     max_tokens: 16000,
-    // grading needs care: high effort by default (Opus 5.5 would otherwise use medium)
+    // the judge runs Claude Haiku 5.5 at medium effort (chosen after a side-by-side study with Opus 5.5)
     output_config: { effort, format: { type: 'json_schema', schema: VERDICT_SCHEMA } },
     system: systemPrompt(input),
     messages: [{ role: 'user', content: userPrompt(input) }],
