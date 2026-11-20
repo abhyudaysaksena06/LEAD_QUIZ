@@ -2,11 +2,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { rpc, store } from '../lib/api'
 import { firebaseConfigured, googleIdToken } from '../lib/firebase'
 
-const fullscreenSupported = () => typeof document !== 'undefined' && document.fullscreenEnabled &&
-  typeof document.documentElement.requestFullscreen === 'function'
+// Fullscreen, including Safari on macOS / iPadOS versions that only have the webkit-prefixed API.
+// (iPhone Safari has no fullscreen for pages at all; there it is skipped.)
+const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement || null
+const fullscreenSupported = () => {
+  if (typeof document === 'undefined') return false
+  const el = document.documentElement
+  return Boolean((document.fullscreenEnabled || document.webkitFullscreenEnabled) &&
+                 (el.requestFullscreen || el.webkitRequestFullscreen))
+}
+const settle = p => Promise.resolve(p).catch(() => {})
 const enterFullscreen = () => {
-  if (!fullscreenSupported() || document.fullscreenElement) return Promise.resolve()
-  return document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {})
+  if (!fullscreenSupported() || fullscreenElement()) return Promise.resolve()
+  const el = document.documentElement
+  try { return settle(el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen()) }
+  catch { return Promise.resolve() }
+}
+const exitFullscreen = () => {
+  if (!fullscreenElement()) return Promise.resolve()
+  try { return settle(document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen?.()) }
+  catch { return Promise.resolve() }
 }
 
 /**
@@ -129,7 +144,8 @@ function ScreeningShell({ cfg, children }) {
           <li><b>The sprint runs in fullscreen.</b> If you leave fullscreen the answers are hidden
             until you return; the timer keeps running.</li>
           <li><b>Write your own answers.</b> During the sprint, <b>copying, cutting, pasting and the
-            right-click menu are disabled</b>. Every attempt, every time you leave fullscreen, and every
+            right-click menu are disabled</b>, and AI writing assistants (such as Apple Intelligence
+            Writing Tools or Grammarly) are switched off in the answer boxes. Every attempt, every time you leave fullscreen, and every
             time you leave the tab or window is recorded and shown to the organisers.</li>
           <li>Use a laptop, and keep the response open in <b>one tab only</b>.</li>
         </ul>
@@ -346,6 +362,17 @@ const words = s => (s.trim() ? s.trim().split(/\s+/).length : 0)
 const BULK_INSERT_CHARS = 60
 const PASTE_INPUT_TYPES = new Set(['insertFromPaste', 'insertFromPasteAsQuotation', 'insertFromDrop', 'insertFromYank'])
 
+/** How many characters one change put in: the part of `next` that differs from `prev`. Catches a
+ *  rewrite of the same length too (e.g. Apple Intelligence Writing Tools "Rewrite"). */
+function insertedChars(prev, next) {
+  const m = Math.min(prev.length, next.length)
+  let i = 0
+  while (i < m && prev[i] === next[i]) i++
+  let j = 0
+  while (j < m - i && prev[prev.length - 1 - j] === next[next.length - 1 - j]) j++
+  return next.length - i - j
+}
+
 /**
  * Copy / paste protection for the writing screen. Blocks paste, drop, copy, cut and the context
  * menu anywhere on the page, and counts the attempts plus times the leader left the tab. The counts
@@ -393,7 +420,16 @@ function useIntegrityGuard(token, active) {
     const onMenu = e => { e.preventDefault(); warn('The right-click menu is disabled during the sprint.') }
     // some keyboards and extensions insert text without a paste event
     const onBeforeInput = e => {
-      if (PASTE_INPUT_TYPES.has(e.inputType)) { e.preventDefault(); record('paste', 'Pasting is disabled in the screening round. This attempt has been recorded.') }
+      if (PASTE_INPUT_TYPES.has(e.inputType)) { e.preventDefault(); record('paste', 'Pasting is disabled in the screening round. This attempt has been recorded.'); return }
+      // A whole sentence or paragraph replaced in one step comes from a writing assistant
+      // (Apple Intelligence Writing Tools, extensions), not from spelling corrections.
+      if (e.inputType === 'insertReplacementText') {
+        const text = e.data ?? e.dataTransfer?.getData('text/plain') ?? ''
+        if (text.length > BULK_INSERT_CHARS) {
+          e.preventDefault()
+          record('bulk', 'AI writing tools are disabled in the screening round. This attempt has been recorded.')
+        }
+      }
     }
     // one count per departure: a tab switch fires both blur and visibilitychange
     let away = false
@@ -437,16 +473,23 @@ function useIntegrityGuard(token, active) {
   const recordBulk = useCallback(() => record('bulk'), [record])
 
   // fullscreen: count every exit; while not in fullscreen the answers are covered (see Writing)
-  const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement)
+  const wasIn = useRef(!!fullscreenElement())
+  const [fullscreen, setFullscreen] = useState(() => !!fullscreenElement())
   useEffect(() => {
     if (!active || !fullscreenSupported()) return
     const onChange = () => {
-      const now = !!document.fullscreenElement
+      const now = !!fullscreenElement()
       setFullscreen(now)
-      if (!now) record('fullscreen', 'You left fullscreen. This is recorded and shown to the organisers.')
+      // Safari may fire both the standard and the prefixed event: count a departure once
+      if (!now && wasIn.current) record('fullscreen', 'You left fullscreen. This is recorded and shown to the organisers.')
+      wasIn.current = now
     }
     document.addEventListener('fullscreenchange', onChange)
-    return () => document.removeEventListener('fullscreenchange', onChange)
+    document.addEventListener('webkitfullscreenchange', onChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange)
+      document.removeEventListener('webkitfullscreenchange', onChange)
+    }
   }, [active, record])
   const needsFullscreen = active && fullscreenSupported() && !fullscreen
 
@@ -506,7 +549,7 @@ function Writing({ token, data, offset, onState, onReload }) {
     try {
       const d = await rpc('screening_save', { p_token: token, p_answers: latest.current, p_final: true })
       store.del(draftKey)
-      if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+      exitFullscreen()
       onState(d)
     } catch (e) {
       if (e.code?.startsWith('SCREENING_') || e.code === 'SESSION_INVALID') { if (e.code !== 'SESSION_INVALID') store.del(draftKey); onReload(); return }
@@ -540,7 +583,7 @@ function Writing({ token, data, offset, onState, onReload }) {
   }, [])
 
   function change(i, v) {
-    if (v.length - (answers[i] || '').length > BULK_INSERT_CHARS) guard.recordBulk()
+    if (insertedChars(answers[i] || '', v) > BULK_INSERT_CHARS) guard.recordBulk()
     const next = answers.map((a, j) => (j === i ? v : a))
     setAnswers(next)
     dirty.current = true
@@ -594,7 +637,8 @@ function Writing({ token, data, offset, onState, onReload }) {
               <p className="muted">{p.body}</p>
               <textarea value={answers[i]} onChange={e => change(i, e.target.value)} maxLength={8000}
                         rows={9} placeholder="Type your answer…" disabled={submitting}
-                        autoComplete="off" spellCheck
+                        autoComplete="off" spellCheck autoCorrect="off"
+                        writingsuggestions="false"
                         data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"
                         data-lt-active="false" />
               <div className="small muted sc-count">{words(answers[i])} words</div>
