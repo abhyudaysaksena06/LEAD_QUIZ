@@ -201,10 +201,10 @@ create table if not exists quiz.screening_tracks (
   signals    jsonb not null             -- [{title, body}] screener signals — admin only
 );
 
--- ---------- one row per team (keyed by the leader's Google email) ----------
+-- ---------- one row per team (keyed by the leader's account email) ----------
 create table if not exists quiz.screening_teams (
   email          text primary key,
-  leader_name    text,                               -- from the Google account
+  leader_name    text,                               -- entered when completing sign-in
   team_name      text not null,
   track          text not null references quiz.screening_tracks(id),
   registered_at  timestamptz not null default now(),
