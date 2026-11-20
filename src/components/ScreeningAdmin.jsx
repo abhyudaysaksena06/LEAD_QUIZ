@@ -164,7 +164,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
   }
 
   function exportCsv() {
-    const header = ['team_name', 'leader_name', 'leader_phone', 'leader_email', 'track', 'status', 'how_submitted',
+    const header = ['team_name', 'team_size', 'leader_name', 'leader_phone', 'leader_email', 'track', 'status', 'how_submitted',
                     'registered_at', 'started_at', 'submitted_at',
                     'q1_prompt', 'q1_answer', 'q1_words', 'q2_prompt', 'q2_answer', 'q2_words',
                     'q3_prompt', 'q3_answer', 'q3_words', 'times_reopened',
@@ -177,7 +177,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
       const tr = trackById[x.track] || {}
       const a = x.answers || []
       const p = tr.prompts || []
-      return [x.team_name, x.leader_name, x.leader_phone, x.email, tr.label || x.track, STATUS[x.status]?.label || x.status,
+      return [x.team_name, x.team_size, x.leader_name, x.leader_phone, x.email, tr.label || x.track, STATUS[x.status]?.label || x.status,
               x.submit_reason === 'TIME_UP' ? 'time ran out' : x.submit_reason === 'MANUAL' ? 'submitted by team' : '',
               when(x.registered_at), when(x.started_at), when(x.submitted_at),
               p[0]?.title, a[0], words(a[0]), p[1]?.title, a[1], words(a[1]), p[2]?.title, a[2], words(a[2]),
@@ -282,7 +282,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
               const leftMs = x.status === 'writing' ? new Date(x.deadline) - (Date.now() + offset) : null
               return (
                 <tr key={x.email}>
-                  <td><b>{x.team_name}</b></td>
+                  <td><b>{x.team_name}</b>{x.team_size && <div className="small muted">{x.team_size} member{x.team_size > 1 ? 's' : ''}</div>}</td>
                   <td>{x.leader_name || '—'}<div className="small muted">{x.leader_phone} · {x.email}</div></td>
                   <td>{trackById[x.track]?.label || x.track}</td>
                   <td>
@@ -416,6 +416,7 @@ function TeamDrawer({ team, track, rubric, busy, judging, onJudge, onClose, onRe
           <div>
             <div className="section">
               <dl className="kv">
+                <dt>Members</dt><dd>{team.team_size ?? '—'}</dd>
                 <dt>Leader</dt><dd>{team.leader_name || '—'}</dd>
                 <dt>Mobile</dt><dd>{team.leader_phone ? <a href={`tel:+91${team.leader_phone}`}>{team.leader_phone}</a> : '—'}</dd>
                 <dt>Email</dt><dd>{team.email}</dd>

@@ -152,7 +152,7 @@ begin
                                order by x.sort) from quiz.screening_tracks x),
     'teams', coalesce((select json_agg(json_build_object(
         'email', t.email, 'leader_name', t.leader_name, 'leader_phone', t.leader_phone,
-        'team_name', t.team_name, 'track', t.track, 'status', quiz.screening_status(t),
+        'team_name', t.team_name, 'team_size', t.team_size, 'track', t.track, 'status', quiz.screening_status(t),
         'registered_at', t.registered_at, 'started_at', t.started_at, 'deadline', t.deadline,
         'submitted_at', t.submitted_at, 'submit_reason', t.submit_reason,
         'last_saved_at', t.last_saved_at, 'save_count', t.save_count,

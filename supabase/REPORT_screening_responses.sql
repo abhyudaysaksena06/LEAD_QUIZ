@@ -3,6 +3,7 @@
 -- (Admin -> Screening -> "Download CSV" gives the same file from the browser.)
 select
   t.team_name,
+  t.team_size,
   t.leader_name,
   t.leader_phone,
   t.email                                                        as leader_email,

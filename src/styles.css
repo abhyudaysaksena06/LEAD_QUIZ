@@ -324,3 +324,8 @@ td.mono { font-family: var(--mono); }
 .sc-or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 14px 0 6px; }
 .sc-or::before, .sc-or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .overlay.sc-fs-cover { z-index: 58; background: rgba(12,20,30,.92); }
+
+.sc-size { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.sc-size button { background: #fff; color: var(--ink); border: 1px solid var(--line); padding: 9px 0; font-size: 15px; }
+.sc-size button:hover:not(:disabled) { background: var(--brand-soft); border-color: #b9cfea; }
+.sc-size button.selected { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-dark); box-shadow: inset 0 -3px 0 var(--brand); }

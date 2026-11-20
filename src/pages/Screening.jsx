@@ -127,7 +127,7 @@ function ScreeningShell({ cfg, children }) {
           <li><b>Only the team leader signs in</b>, with any email address and a password.
             Each account submits <b>one response for one team</b>.</li>
           <li>To complete sign-in, enter the <b>team leader’s full name</b> and <b>mobile number</b>,
-            your <b>team name</b>, and choose <b>one track</b>:
+            your <b>team name</b>, the <b>number of team members (1–4)</b>, and choose <b>one track</b>:
             <ul className="sub-rules">
               <li><b>Product</b> — product &amp; commercial offering strategy</li>
               <li><b>Consulting</b> — strategy, operations &amp; crisis governance</li>
@@ -239,6 +239,7 @@ function AuthCard({ onSignedIn, notice }) {
       <button className="lg" style={{ width: '100%', marginTop: 14 }} disabled={busy}>
         {busy ? 'Please wait…' : signup ? 'Create account' : 'Sign in'}
       </button>
+      <p className="small muted" style={{ marginTop: 12, textAlign: 'center' }}>Organiser? <a href="/admin">Admin sign in</a></p>
       {!signup && <p className="small muted" style={{ marginTop: 12 }}>Forgot your password? Ask an organiser to reset it.</p>}
     </form>
   )
@@ -259,17 +260,19 @@ function DetailsForm({ token, data, onSaved, onCancel, onSignOut }) {
   const [phone, setPhone] = useState(t?.leader_phone || '')
   const [name, setName] = useState(t?.team_name || '')
   const [track, setTrack] = useState(t?.track || '')
+  const [size, setSize] = useState(t?.team_size || 0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const closed = !data.config.is_open
 
   async function submit(e) {
     e.preventDefault()
+    if (!size) { setError('Choose how many members your team has.'); return }
     if (!track) { setError('Choose a track.'); return }
     setError(''); setBusy(true)
     try {
       onSaved(await rpc('screening_register', { p_token: token, p_leader_name: leader, p_phone: phone,
-                                                p_team_name: name, p_track: track }))
+                                                p_team_name: name, p_track: track, p_team_size: size }))
     } catch (err) { setError(err.message) }
     finally { setBusy(false) }
   }
@@ -289,6 +292,14 @@ function DetailsForm({ token, data, onSaved, onCancel, onSignOut }) {
       <label htmlFor="team">Team name</label>
       <input id="team" value={name} onChange={e => setName(e.target.value)} maxLength={60}
              placeholder="e.g. The Analysts" required disabled={closed} />
+
+      <label id="sizel">Number of team members <span className="muted" style={{ fontWeight: 400 }}>(including the leader)</span></label>
+      <div className="sc-size" role="radiogroup" aria-labelledby="sizel">
+        {[1, 2, 3, 4].map(n => (
+          <button key={n} type="button" role="radio" aria-checked={size === n} disabled={closed}
+                  className={size === n ? 'selected' : ''} onClick={() => setSize(n)}>{n}</button>
+        ))}
+      </div>
 
       <label>Track</label>
       <div className="sc-tracks" role="radiogroup">
@@ -335,6 +346,7 @@ function ReadyCard({ token, data, onEdit, onStarted, onSignOut }) {
       <dl className="details">
         <dt>Team</dt><dd>{t.team_name}</dd>
         <dt>Track</dt><dd>{t.track_label}</dd>
+        <dt>Members</dt><dd>{t.team_size ?? '—'}</dd>
         <dt>Team leader</dt><dd>{t.leader_name}</dd>
         <dt>Mobile</dt><dd>{t.leader_phone}</dd>
         <dt>Time</dt><dd>{mins} minutes, 3 prompts</dd>

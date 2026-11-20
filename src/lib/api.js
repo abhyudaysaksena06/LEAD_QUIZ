@@ -31,6 +31,7 @@ const FRIENDLY = {
   SCREENING_TIME_UP: 'Time is up. Your response was submitted with everything saved before the deadline.',
   TEAM_NAME_INVALID: 'Team name must be 2 to 60 characters.',
   TEAM_NAME_TAKEN: 'Another team has already registered that name. Pick a different one.',
+  TEAM_SIZE_INVALID: 'Choose how many members your team has (1 to 4).',
   TRACK_INVALID: 'Choose one of the three tracks.',
 }
 

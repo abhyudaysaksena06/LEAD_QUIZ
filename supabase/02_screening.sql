@@ -75,6 +75,11 @@ alter table quiz.screening_teams add column if not exists bulk_inserts   int not
 alter table quiz.screening_teams add column if not exists tab_switches   int not null default 0;
 alter table quiz.screening_teams add column if not exists fullscreen_exits int not null default 0;
 
+-- number of people in the team, leader included (1-4); null for teams registered before this existed
+alter table quiz.screening_teams add column if not exists team_size int;
+alter table quiz.screening_teams drop constraint if exists screening_teams_team_size_check;
+alter table quiz.screening_teams add constraint screening_teams_team_size_check check (team_size between 1 and 4);
+
 -- Google sign-in: the Vercel function verifies the Google / Firebase ID token, then calls
 -- screening_login_federated with a shared secret. Only the secret's SHA-256 is stored here;
 -- null = Google sign-in switched off.
@@ -270,7 +275,7 @@ begin
     'tracks', (select json_agg(json_build_object('id', x.id, 'label', x.label, 'subtitle', x.subtitle)
                                order by x.sort) from quiz.screening_tracks x),
     'team', case when t.email is null then null else json_build_object(
-        'team_name', t.team_name, 'leader_name', t.leader_name, 'leader_phone', t.leader_phone,
+        'team_name', t.team_name, 'team_size', t.team_size, 'leader_name', t.leader_name, 'leader_phone', t.leader_phone,
         'track', t.track, 'track_label', tr.label, 'status', quiz.screening_status(t),
         'registered_at', t.registered_at, 'started_at', t.started_at, 'deadline', t.deadline,
         'submitted_at', t.submitted_at, 'submit_reason', t.submit_reason,
@@ -354,10 +359,11 @@ begin
   return quiz.screening_payload(v_email);
 end $$;
 
--- Completes sign-in: leader's name + mobile, team name + track.
+-- Completes sign-in: leader's name + mobile, team name, team size (1-4) + track.
 -- Can be changed until the clock starts.
+drop function if exists public.screening_register(uuid, text, text, text, text);
 create or replace function public.screening_register(p_token uuid, p_leader_name text, p_phone text,
-                                                     p_team_name text, p_track text)
+                                                     p_team_name text, p_track text, p_team_size int)
 returns json language plpgsql security definer set search_path = quiz, public as $$
 declare v_email text := quiz.leader_from_token(p_token);
         v_leader text; v_phone text; v_name text; v_track text; t quiz.screening_teams;
@@ -374,6 +380,7 @@ begin
   if v_phone is null then raise exception 'PHONE_INVALID'; end if;
   v_name := regexp_replace(btrim(coalesce(p_team_name, '')), '\s+', ' ', 'g');
   if length(v_name) < 2 or length(v_name) > 60 then raise exception 'TEAM_NAME_INVALID'; end if;
+  if p_team_size is null or p_team_size not between 1 and 4 then raise exception 'TEAM_SIZE_INVALID'; end if;
   v_track := lower(btrim(coalesce(p_track, '')));
   if not exists (select 1 from quiz.screening_tracks where id = v_track) then
     raise exception 'TRACK_INVALID';
@@ -384,11 +391,12 @@ begin
 
   begin
     if t.email is null then
-      insert into quiz.screening_teams (email, leader_name, leader_phone, team_name, track)
-      values (v_email, v_leader, v_phone, v_name, v_track);
+      insert into quiz.screening_teams (email, leader_name, leader_phone, team_name, team_size, track)
+      values (v_email, v_leader, v_phone, v_name, p_team_size, v_track);
     else
       update quiz.screening_teams
-         set leader_name = v_leader, leader_phone = v_phone, team_name = v_name, track = v_track,
+         set leader_name = v_leader, leader_phone = v_phone, team_name = v_name, team_size = p_team_size,
+             track = v_track,
              updated_at = now()
        where email = v_email;
     end if;
@@ -400,7 +408,7 @@ begin
   end;
 
   perform quiz.audit(v_email, 'SCREENING_REGISTER', v_name,
-                     json_build_object('track', v_track, 'leader', v_leader)::jsonb);
+                     json_build_object('track', v_track, 'leader', v_leader, 'team_size', p_team_size)::jsonb);
   return quiz.screening_payload(v_email);
 end $$;
 
@@ -579,7 +587,7 @@ end $$;
 -- and grant exactly what the site uses.
 revoke execute on function public.screening_signup(text, text), public.screening_login(text, text),
   public.screening_logout(uuid), public.screening_state(uuid),
-  public.screening_register(uuid, text, text, text, text), public.screening_start(uuid),
+  public.screening_register(uuid, text, text, text, text, int), public.screening_start(uuid),
   public.screening_save(uuid, text[], boolean), public.screening_report_integrity(uuid, int, int, int, int, int),
   public.screening_login_federated(text, text, text),
   public.admin_screening_settings(uuid, boolean, int), public.admin_screening_reopen(uuid, text, int),
@@ -589,7 +597,7 @@ grant execute on function public.screening_signup(text, text)                  t
 grant execute on function public.screening_login(text, text)                   to anon, authenticated;
 grant execute on function public.screening_logout(uuid)                        to anon, authenticated;
 grant execute on function public.screening_state(uuid)                         to anon, authenticated;
-grant execute on function public.screening_register(uuid, text, text, text, text) to anon, authenticated;
+grant execute on function public.screening_register(uuid, text, text, text, text, int) to anon, authenticated;
 grant execute on function public.screening_start(uuid)                         to anon, authenticated;
 grant execute on function public.screening_save(uuid, text[], boolean)         to anon, authenticated;
 grant execute on function public.screening_report_integrity(uuid, int, int, int, int, int) to anon, authenticated;
