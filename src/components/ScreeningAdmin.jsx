@@ -202,6 +202,9 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
   if (!data) return err ? <div className="error">{err}</div> : <p className="muted">Loading…</p>
 
   const count = (k, v) => teams.filter(x => x[k] === v).length
+  // participants = sum of team sizes (leader included); teams registered before sizes existed count as unknown
+  const people = list => list.reduce((n, x) => n + Number(x.team_size || 0), 0)
+  const unsized = teams.filter(x => !x.team_size).length
   const cfg = data.config
   const viewing = open && teams.find(x => x.email === open)
   const incomplete = data.incomplete || []
@@ -210,9 +213,14 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
     <>
       <div className="stats">
         <div className="stat"><b>{teams.length}</b><span>Teams</span></div>
+        <div className="stat" title={unsized ? `${unsized} team(s) have no member count and are not included` : 'Sum of team sizes, leaders included'}>
+          <b style={{ color: 'var(--brand)' }}>{people(teams)}{unsized ? '+' : ''}</b><span>Participants</span></div>
         <div className="stat" title="Created an account but have not entered their name, phone and team yet">
           <b style={{ color: incomplete.length ? 'var(--warn)' : undefined }}>{incomplete.length}</b><span>Sign-in not completed</span></div>
-        {tracks.map(t => <div key={t.id} className="stat"><b>{count('track', t.id)}</b><span>{t.label}</span></div>)}
+        {tracks.map(t => {
+          const list = teams.filter(x => x.track === t.id)
+          return <div key={t.id} className="stat"><b>{list.length}</b><span>{t.label} · {people(list)} people</span></div>
+        })}
         <div className="stat"><b style={{ color: 'var(--brand)' }}>{count('status', 'writing')}</b><span>Writing now</span></div>
         <div className="stat"><b style={{ color: 'var(--ok)' }}>{count('status', 'submitted')}</b><span>Submitted</span></div>
         <div className="stat"><b>{teams.filter(x => x.ai && !x.ai.stale).length}</b><span>AI judged</span></div>
