@@ -1,14 +1,12 @@
-# Netlify config. vercel.json is ignored by Netlify, so the same settings live here.
+# Netlify config (vercel.json covers Vercel).
 [build]
-  base    = "quiz-portal"     # the app is in this subfolder, not the repo root
   command = "npm run build"
-  publish = "dist"            # relative to base
+  publish = "dist"
 
 [build.environment]
   NODE_VERSION = "22"   # Vite 8 needs Node 20.19+ or 22.12+
 
-# Single-page app: send every route (/admin, /exam...) to index.html,
-# otherwise refreshing any page other than / gives a 404.
+# Single-page app: every route (/admin ...) serves index.html
 [[redirects]]
   from   = "/*"
   to     = "/index.html"

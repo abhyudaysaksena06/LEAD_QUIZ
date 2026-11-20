@@ -1,0 +1,565 @@
+-- =====================================================================
+-- PRIMUS 2026 screening round — STANDALONE INSTALL (base)
+--
+-- For a database that does NOT have the LEAD quiz (e.g. the PRIMUS event
+-- project). Creates only what the screening round needs: the private quiz
+-- schema, admin logins + sessions, sign-in throttling and the audit log.
+-- Run this, then 34_screening_round.sql (SCREENING_STANDALONE.sql = both).
+--
+-- Every definition here is identical to the full quiz setup (01, 03, 28),
+-- so running it on the full quiz database changes nothing. Safe to re-run.
+-- Admin accounts are created by you afterwards — see the end of this file.
+-- =====================================================================
+
+create extension if not exists pgcrypto with schema extensions;
+create schema if not exists quiz;
+
+create table if not exists quiz.admins (
+  username      text primary key,
+  password_hash text not null,
+  display_name  text,
+  created_at    timestamptz not null default now()
+);
+alter table quiz.admins add column if not exists last_seen_at timestamptz;
+
+create table if not exists quiz.sessions (
+  token      uuid primary key default gen_random_uuid(),
+  kind       text not null check (kind in ('student', 'admin')),
+  subject    text not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  revoked    boolean not null default false
+);
+create index if not exists sessions_subject_idx on quiz.sessions (kind, subject);
+alter table quiz.sessions add column if not exists device text;
+
+create table if not exists quiz.login_failures (
+  id        bigserial primary key,
+  subject   text not null,
+  failed_at timestamptz not null default now()
+);
+create index if not exists login_failures_idx on quiz.login_failures (subject, failed_at);
+
+create table if not exists quiz.audit_log (
+  id         bigserial primary key,
+  actor      text not null,
+  action     text not null,
+  target     text,
+  detail     jsonb,
+  created_at timestamptz not null default now()
+);
+
+alter table quiz.admins         enable row level security;
+alter table quiz.sessions       enable row level security;
+alter table quiz.login_failures enable row level security;
+alter table quiz.audit_log      enable row level security;
+
+create or replace function quiz.admin_from_token(p_token uuid)
+returns text language plpgsql security definer set search_path = quiz, public as $$
+declare v text;
+begin
+  select subject into v from quiz.sessions
+   where token = p_token and kind = 'admin' and not revoked and expires_at > now();
+  if v is null then raise exception 'ADMIN_SESSION_INVALID'; end if;
+  -- presence heartbeat: every admin call marks them active
+  update quiz.admins set last_seen_at = now() where username = v;
+  return v;
+end $$;
+
+create or replace function quiz.hash_password(p_plain text)
+returns text language sql security definer set search_path = quiz, extensions, public as $$
+  select extensions.crypt(p_plain, extensions.gen_salt('bf', 8));
+$$;
+
+create or replace function quiz.check_password(p_plain text, p_hash text)
+returns boolean language sql security definer set search_path = quiz, extensions, public as $$
+  select p_hash = extensions.crypt(p_plain, p_hash);
+$$;
+
+create or replace function quiz.audit(p_actor text, p_action text, p_target text, p_detail jsonb default null)
+returns void language sql security definer set search_path = quiz, public as $$
+  insert into quiz.audit_log (actor, action, target, detail) values (p_actor, p_action, p_target, p_detail);
+$$;
+
+create or replace function quiz.client_ip()
+returns text language plpgsql stable security definer set search_path = quiz, public as $$
+declare h jsonb; ip text;
+begin
+  begin
+    h := nullif(current_setting('request.headers', true), '')::jsonb;
+  exception when others then h := null;
+  end;
+  if h is null then return null; end if;
+  ip := coalesce(h ->> 'cf-connecting-ip',
+                 trim(split_part(h ->> 'x-forwarded-for', ',', 1)),
+                 h ->> 'x-real-ip');
+  return nullif(left(trim(coalesce(ip, '')), 64), '');
+end $$;
+
+create or replace function public.admin_login(p_username text, p_password text)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare a quiz.admins; v_token uuid;
+        v_key text := 'admin:' || trim(p_username) || '@' || coalesce(quiz.client_ip(), '?');
+begin
+  -- returns instead of raising, so the recorded failure survives (see student_login)
+  -- 8 wrong guesses per username FROM ONE PLACE, and 60 per username from
+  -- everywhere, in 10 minutes. A stranger guessing can no longer lock the real
+  -- admin out, and a spread-out attack is still capped.
+  if (select count(*) from quiz.login_failures
+       where subject = v_key and failed_at > now() - interval '10 minutes') >= 8
+     or (select count(*) from quiz.login_failures
+          where subject like 'admin:' || trim(p_username) || '@%'
+            and failed_at > now() - interval '10 minutes') >= 60 then
+    return json_build_object('ok', false, 'code', 'TOO_MANY_ATTEMPTS');
+  end if;
+
+  select * into a from quiz.admins where username = trim(p_username);
+  if a.username is null or not quiz.check_password(p_password, a.password_hash) then
+    insert into quiz.login_failures (subject) values (v_key);
+    return json_build_object('ok', false, 'code', 'INVALID_CREDENTIALS');
+  end if;
+  delete from quiz.login_failures where subject = v_key;
+  insert into quiz.sessions (kind, subject, expires_at)
+  values ('admin', a.username, now() + interval '12 hours') returning token into v_token;
+  perform quiz.audit(a.username, 'ADMIN_LOGIN', null);
+  return json_build_object('ok', true, 'token', v_token, 'username', a.username,
+                           'display_name', a.display_name);
+end $$;
+
+create or replace function public.admin_logout(p_token uuid)
+returns void language sql security definer set search_path = quiz, public as $$
+  update quiz.sessions set revoked = true where token = p_token and kind = 'admin';
+$$;
+
+-- ---------- permissions: the browser reaches nothing in schema quiz directly ----------
+revoke all on all tables    in schema quiz from public;
+revoke all on all sequences in schema quiz from public;
+revoke execute on all functions in schema quiz from public;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on all tables in schema quiz from anon, authenticated';
+  end if;
+end $$;
+grant execute on function public.admin_login(text, text) to anon, authenticated;
+grant execute on function public.admin_logout(uuid)      to anon, authenticated;
+
+-- ---------- admin accounts (run separately; never commit real passwords) ----------
+-- insert into quiz.admins (username, password_hash, display_name)
+-- values ('admin', quiz.hash_password('CHOOSE_A_PASSWORD'), 'PRIMUS admin')
+-- on conflict (username) do update set password_hash = excluded.password_hash;
+
+
+-- ##############################  34_screening_round.sql  ##############################
+
+-- =====================================================================
+-- LEAD Quiz Portal — 34: PRIMUS 2026 screening round (Case File 07)
+--
+-- A separate, written screening round for team leaders:
+--   1. the team leader signs in with Google (their email is the identity),
+--   2. enters the team name and picks ONE track: Product, Consulting, Finance,
+--   3. presses Start and gets a server-enforced timer (15 min by default)
+--      to answer the three sprint prompts for their track,
+--   4. answers autosave; at time-up the response is closed automatically.
+--
+-- The case and the prompts are only sent to the browser after Start, and the
+-- screener signals / rubric never are — only the admin functions return them.
+-- Admins see every response in Admin -> Screening and download it as a CSV;
+-- REPORT_screening_responses.sql gives the same CSV from the SQL editor.
+--
+-- Nothing in the existing quiz is changed. Safe to re-run: teams and answers
+-- are kept; the case text and prompts below are refreshed.
+-- =====================================================================
+
+-- ---------- settings (single row) ----------
+create table if not exists quiz.screening_config (
+  id               int primary key default 1 check (id = 1),
+  is_open          boolean not null default true,     -- registration + Start allowed
+  duration_minutes int     not null default 15 check (duration_minutes between 1 and 180),
+  event_title      text    not null default 'PRIMUS 2026 · Screening Round',
+  case_title       text    not null default 'Case File 07: The Ghost Customer',
+  case_facts       jsonb   not null default '[]'::jsonb,   -- [{label, text}] shown after Start
+  rubric           jsonb   not null default '[]'::jsonb,   -- admin only
+  updated_at       timestamptz not null default now()
+);
+insert into quiz.screening_config (id) values (1) on conflict do nothing;
+
+-- ---------- the three tracks ----------
+create table if not exists quiz.screening_tracks (
+  id         text primary key,          -- 'product' | 'consulting' | 'finance'
+  sort       int  not null,
+  label      text not null,
+  subtitle   text not null,
+  role_brief text not null,             -- the "Role: Act as ..." paragraph, shown after Start
+  prompts    jsonb not null,            -- [{title, body}] — shown after Start
+  mandate    text not null,             -- admin only (it hints at the answer)
+  signals    jsonb not null             -- [{title, body}] screener signals — admin only
+);
+
+-- ---------- one row per team (keyed by the leader's Google email) ----------
+create table if not exists quiz.screening_teams (
+  email          text primary key,
+  leader_name    text,                               -- from the Google account
+  team_name      text not null,
+  track          text not null references quiz.screening_tracks(id),
+  registered_at  timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  started_at     timestamptz,
+  deadline       timestamptz,
+  submitted_at   timestamptz,
+  submit_reason  text check (submit_reason in ('MANUAL', 'TIME_UP')),
+  answers        text[] not null default array['', '', '']::text[],
+  last_saved_at  timestamptz,
+  save_count     int not null default 0,
+  reopened_count int not null default 0
+);
+create unique index if not exists screening_teams_name_uq
+  on quiz.screening_teams (lower(btrim(team_name)));
+
+alter table quiz.screening_config enable row level security;
+alter table quiz.screening_tracks enable row level security;
+alter table quiz.screening_teams  enable row level security;
+revoke all on quiz.screening_config, quiz.screening_tracks, quiz.screening_teams from public;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on quiz.screening_config, quiz.screening_tracks, quiz.screening_teams from anon, authenticated';
+  end if;
+end $$;
+
+-- ---------- case content (refreshed on every run) ----------
+update quiz.screening_config set
+  case_facts = $j$[
+    {"label": "The Anomaly",    "text": "A massive ₹48L weekend surge representing 1.2 lakh cans sold (₹40/can)."},
+    {"label": "The Metrics",    "text": "A 300% jump in acquisition paired with a 180% jump in repeat purchases, while digital traffic remains completely flat."},
+    {"label": "The Catalyst",   "text": "An anonymous warning email received at 08:47 AM urging management to \"investigate your business model\"."},
+    {"label": "The Constraints","text": "An emergency response budget of ₹5L and a pending ₹10 Cr investor decision tomorrow."}
+  ]$j$::jsonb,
+  rubric = $j$[
+    {"title": "Evidence Discipline",      "points": 8, "body": "Did they avoid guessing the culprit and clearly separate verified facts from hypotheses?"},
+    {"title": "Track-Specific Depth",     "points": 8, "body": "Did they use sharp Consulting (MECE/governance), Product/Business Model (SKU/packaging/use-case/offering redesign), or Finance (QoE/deferred rev/tranches) tools rather than generic fluff?"},
+    {"title": "The ₹10 Cr Investor Call", "points": 5, "body": "Is their investor recommendation legally defensible, commercially realistic, and honest about uncertainty?"},
+    {"title": "Clarity & Prioritization", "points": 4, "body": "Could they deliver a structured board-ready answer within the 15-minute constraint?"}
+  ]$j$::jsonb,
+  updated_at = now()
+where id = 1;
+
+insert into quiz.screening_tracks (id, sort, label, subtitle, role_brief, prompts, mandate, signals) values
+('product', 1, 'Product',
+ 'Product & Commercial Offering Strategy — physical product, packaging, SKU & business model changes',
+ $t$Act as ZestUp's Head of Product & Commercial Strategy. Remember the anonymous email's warning: "Investigate your business model." 1.2 lakh cans moved over one weekend with zero digital marketing spike. You have 15 minutes to re-evaluate the physical product, packaging, and commercial offering.$t$,
+ $j$[
+   {"title": "Product-Market & Use-Case Audit", "body": "What 3 product-level or business-model hypotheses explain why buyers suddenly cleared 1.2 lakh cans without touching your website or app? (Consider institutional/HORECA bulk utility, multipack vs. single-can pricing gaps, ingredient/functional cross-use, or co-bundling arbitrage.)"},
+   {"title": "48-Hour SKU & Offer Containment", "body": "What immediate changes do you make to pack sizes, minimum order quantities (MOQs), promotional bundling, or product labeling/traceability over the next 48 hours to stop value leakage while keeping legitimate buyers active?"},
+   {"title": "Product & Business Model Evolution", "body": "If this surge reveals an unintended customer segment or consumption occasion, how do you redesign ZestUp's product line (e.g., launching a dedicated B2B/bulk SKU, reformulating pack tiers, or creating a subscription/institutional offering) so tomorrow's ₹10 Cr investor sees a defensible product roadmap?"}
+ ]$j$::jsonb,
+ $t$If 1.2 lakh cans moved at ₹40/can without digital marketing lift—and the anonymous email explicitly warns to "investigate your business model"—the anomaly points to how ZestUp's physical product, pack sizes, bundling, pricing tiers, or B2B/B2C use-cases are being consumed or exploited in the real world. Management must figure out whether ZestUp has accidentally unlocked a new off-label/bulk consumption use-case or suffered an SKU/bundling arbitrage flaw, and redesign the product offering to capture legitimate demand profitably.$t$,
+ $j$[
+   {"title": "Commercial Product Intuition", "body": "Connects the email clue (\"investigate your business model\") directly to physical product mechanics—such as single-can vs. case pricing arbitrage, accidental B2B/event/HORECA fit, or third-party bundling where ZestUp's can is being resold as part of another offer."},
+   {"title": "Offering & SKU Segmentation", "body": "Proposes splitting the product line (e.g., separating retail single-serve cans from a dedicated, differently priced institutional/bulk pack) rather than treating all 1.2 lakh cans as identical D2C/retail consumption."},
+   {"title": "Investor-Ready Product Roadmap", "body": "Turns an unexplained spike into a concrete commercial thesis for the ₹10 Cr investor—showing how ZestUp will validate the new use-case and lock in repeat unit economics through product/packaging redesign."}
+ ]$j$::jsonb),
+
+('consulting', 2, 'Consulting',
+ 'Management Consulting — strategy, operations & crisis governance',
+ $t$Act as ZestUp's Emergency Strategy Lead. You have 15 minutes to brief the CEO before tonight's board call. Do not guess the culprit—structure a rapid diagnostic and containment plan.$t$,
+ $j$[
+   {"title": "Hypothesis Tree & Triage", "body": "Map 3 mutually exclusive hypotheses for the ₹48L anomaly (referencing the email's clue: \"investigate your business model\") and identify the exact 3 data points you will pull in the next 4 hours to prove/disprove them."},
+   {"title": "The ₹10 Cr Investor Protocol", "body": "Decide whether to disclose, delay, or qualify tomorrow's announcement. Draft the exact 3-sentence communication posture for the lead investor."},
+   {"title": "Channel Containment", "body": "What immediate operational freeze or guardrail do you place on distribution and production over the next 48 hours?"}
+ ]$j$::jsonb,
+ $t$ZestUp does not have a demand generation problem; it has a demand verification and stakeholder governance crisis. With ₹10 Cr of institutional capital on the line tomorrow, management must separate sell-in (channel stuffing/arbitrage) from sell-through (organic consumption) without triggering panic across retail partners or violating investor trust.$t$,
+ $j$[
+   {"title": "MECE Hypothesis Framing", "body": "Clearly separates Channel Arbitrage/Incentive Loopholes (e.g., B2B promo stacking, distributor rebates exceeding margin) from Data/Attribution Errors and Malicious/Competitor Manipulation."},
+   {"title": "Decision-Making Under Ambiguity", "body": "Recommends ring-fencing the ₹48L as \"unverified/non-recurring\" in investor disclosures rather than either hiding it (fraud risk) or publicly retracting it (brand suicide)."},
+   {"title": "Execution Discipline", "body": "Allocates the ₹5L emergency budget specifically toward rapid field audits (retailer POS checks and physical inventory sweeps) rather than superficial marketing fixes."}
+ ]$j$::jsonb),
+
+('finance', 3, 'Finance',
+ 'Corporate Finance & Valuation — revenue quality, working capital & deal structuring',
+ $t$Act as ZestUp's Interim CFO / Deal Advisor. Tomorrow's ₹10 Cr investment relies heavily on your weekend run-rate. You have 15 minutes to protect the balance sheet and salvage the deal.$t$,
+ $j$[
+   {"title": "Quality of Earnings (QoE) & Working Capital Check", "body": "What specific accounting, cash-flow, and unit-economics red flags (at ₹40/can) could explain ₹48L hitting distribution accounts while end-demand remains unverified? (Consider rebates, credit terms, and return clauses.)"},
+   {"title": "Accounting & Treasury Firewall", "body": "How do you classify the ₹48L on your books right now (e.g., deferred revenue/escrow reserve vs. recognized revenue), and how do you deploy the ₹5L emergency budget?"},
+   {"title": "Deal Restructuring", "body": "Propose a financial structure (e.g., tranche-based release, escrow holdback, or performance ratchets) so the investor still commits ₹10 Cr tomorrow without ZestUp misrepresenting the weekend numbers."}
+ ]$j$::jsonb,
+ $t$Revenue is not cash quality, and ₹48L of questionable top-line growth cannot be allowed to jeopardize a ₹10 Cr equity infusion. At ₹40/can (1.2 lakh cans = ₹48 lakh), ZestUp faces severe revenue recognition risk, potential channel stuffing / return liabilities, and valuation clawback exposure if the ₹10 Cr deal closes on inflated run-rate multiples.$t$,
+ $j$[
+   {"title": "Forensic Financial Acumen", "body": "Calculates the implicit realization (₹40/can), questions whether cash collected is net of future distributor rebates/slotting fees, and flags the catastrophic risk of post-weekend inventory returns."},
+   {"title": "GAAP/Ind-AS Conservatism", "body": "Recommends ring-fencing the ₹48L cash and treating it as Deferred/Contingent Revenue until secondary sell-through is audited—eliminating legal misrepresentation risk."},
+   {"title": "Creative Deal Structuring", "body": "Converts a binary \"walk away vs. close\" crisis into a structured closing—e.g., closing ₹6–7 Cr upfront and placing ₹3–4 Cr in a 30-day escrow contingent on verified secondary sell-through cohorts."}
+ ]$j$::jsonb)
+on conflict (id) do update set
+  sort = excluded.sort, label = excluded.label, subtitle = excluded.subtitle,
+  role_brief = excluded.role_brief, prompts = excluded.prompts,
+  mandate = excluded.mandate, signals = excluded.signals;
+
+-- =====================================================================
+-- Internal helpers
+-- =====================================================================
+
+-- Seconds after the deadline during which an in-flight autosave is still accepted.
+create or replace function quiz.screening_grace() returns interval
+language sql immutable as $$ select interval '30 seconds' $$;
+
+-- The verified Google email of the caller, or an exception.
+create or replace function quiz.screening_caller()
+returns table (email text, google_name text)
+language plpgsql security definer set search_path = quiz, public as $$
+declare v_claims jsonb;
+begin
+  begin
+    v_claims := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+  exception when others then v_claims := null;
+  end;
+  email := lower(btrim(coalesce(v_claims ->> 'email', '')));
+  if email = '' then raise exception 'NOT_SIGNED_IN'; end if;
+  if coalesce(v_claims -> 'user_metadata' ->> 'email_verified',
+              v_claims ->> 'email_verified', 'true') = 'false' then
+    raise exception 'EMAIL_NOT_VERIFIED';
+  end if;
+  google_name := nullif(btrim(coalesce(v_claims ->> 'name', v_claims -> 'user_metadata' ->> 'full_name', '')), '');
+  return next;
+end $$;
+
+-- Close every response whose time (plus grace) has run out.
+create or replace function quiz.screening_expire()
+returns void language sql security definer set search_path = quiz, public as $$
+  update quiz.screening_teams
+     set submitted_at = deadline, submit_reason = 'TIME_UP', updated_at = now()
+   where submitted_at is null and deadline is not null
+     and deadline + quiz.screening_grace() < now();
+$$;
+
+create or replace function quiz.screening_status(t quiz.screening_teams)
+returns text language sql stable as $$
+  select case when t.submitted_at is not null then 'submitted'
+              when t.started_at  is not null then 'writing'
+              else 'registered' end;
+$$;
+
+-- What the candidate's browser may see. Prompts only after Start.
+create or replace function quiz.screening_payload(p_email text, p_google_name text)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare c quiz.screening_config; t quiz.screening_teams; tr quiz.screening_tracks;
+begin
+  select * into c from quiz.screening_config where id = 1;
+  select * into t from quiz.screening_teams where email = p_email;
+  if t.email is not null then select * into tr from quiz.screening_tracks where id = t.track; end if;
+
+  return json_build_object(
+    'ok', true,
+    'server_now', now(),
+    'email', p_email,
+    'google_name', p_google_name,
+    'config', json_build_object('is_open', c.is_open, 'duration_minutes', c.duration_minutes,
+                                'event_title', c.event_title, 'case_title', c.case_title),
+    'tracks', (select json_agg(json_build_object('id', x.id, 'label', x.label, 'subtitle', x.subtitle)
+                               order by x.sort) from quiz.screening_tracks x),
+    'team', case when t.email is null then null else json_build_object(
+        'team_name', t.team_name, 'leader_name', t.leader_name, 'track', t.track,
+        'track_label', tr.label, 'status', quiz.screening_status(t),
+        'registered_at', t.registered_at, 'started_at', t.started_at, 'deadline', t.deadline,
+        'submitted_at', t.submitted_at, 'submit_reason', t.submit_reason,
+        'last_saved_at', t.last_saved_at) end,
+    -- the case itself: only once the clock is running (or for reading back after submitting)
+    'case', case when t.started_at is null then null else json_build_object(
+        'facts', c.case_facts, 'role_brief', tr.role_brief, 'prompts', tr.prompts,
+        'answers', to_json(t.answers)) end);
+end $$;
+
+-- =====================================================================
+-- Candidate API (Google-signed-in team leader)
+-- =====================================================================
+
+create or replace function public.screening_state()
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare me record;
+begin
+  select * into me from quiz.screening_caller();
+  perform quiz.screening_expire();
+  return quiz.screening_payload(me.email, me.google_name);
+end $$;
+
+-- Register, or change team name / track while the clock has not started.
+create or replace function public.screening_register(p_team_name text, p_track text)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare me record; v_name text; v_track text; t quiz.screening_teams;
+begin
+  select * into me from quiz.screening_caller();
+  if not (select is_open from quiz.screening_config where id = 1) then
+    raise exception 'SCREENING_CLOSED';
+  end if;
+
+  v_name := regexp_replace(btrim(coalesce(p_team_name, '')), '\s+', ' ', 'g');
+  if length(v_name) < 2 or length(v_name) > 60 then raise exception 'TEAM_NAME_INVALID'; end if;
+  v_track := lower(btrim(coalesce(p_track, '')));
+  if not exists (select 1 from quiz.screening_tracks where id = v_track) then
+    raise exception 'TRACK_INVALID';
+  end if;
+
+  select * into t from quiz.screening_teams where email = me.email for update;
+  if t.started_at is not null then raise exception 'SCREENING_ALREADY_STARTED'; end if;
+
+  begin
+    if t.email is null then
+      insert into quiz.screening_teams (email, leader_name, team_name, track)
+      values (me.email, me.google_name, v_name, v_track);
+    else
+      update quiz.screening_teams
+         set team_name = v_name, track = v_track, leader_name = coalesce(me.google_name, leader_name),
+             updated_at = now()
+       where email = me.email;
+    end if;
+  exception when unique_violation then
+    raise exception 'TEAM_NAME_TAKEN';
+  end;
+
+  perform quiz.audit(me.email, 'SCREENING_REGISTER', v_name, json_build_object('track', v_track)::jsonb);
+  return quiz.screening_payload(me.email, me.google_name);
+end $$;
+
+-- Start the clock. Idempotent: a second call (another tab, a reload) changes nothing.
+create or replace function public.screening_start()
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare me record; t quiz.screening_teams; c quiz.screening_config;
+begin
+  select * into me from quiz.screening_caller();
+  select * into t from quiz.screening_teams where email = me.email for update;
+  if t.email is null then raise exception 'SCREENING_NOT_REGISTERED'; end if;
+  if t.started_at is null then
+    select * into c from quiz.screening_config where id = 1;
+    if not c.is_open then raise exception 'SCREENING_CLOSED'; end if;
+    update quiz.screening_teams
+       set started_at = now(), deadline = now() + make_interval(mins => c.duration_minutes),
+           updated_at = now()
+     where email = me.email;
+    perform quiz.audit(me.email, 'SCREENING_START', t.team_name, null);
+  end if;
+  return quiz.screening_payload(me.email, me.google_name);
+end $$;
+
+-- Autosave (p_final = false) or submit (p_final = true).
+create or replace function public.screening_save(p_answers text[], p_final boolean default false)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare me record; t quiz.screening_teams; v text[];
+begin
+  select * into me from quiz.screening_caller();
+  select * into t from quiz.screening_teams where email = me.email for update;
+  if t.email is null then raise exception 'SCREENING_NOT_REGISTERED'; end if;
+  if t.started_at is null then raise exception 'SCREENING_NOT_STARTED'; end if;
+  if t.submitted_at is not null then raise exception 'SCREENING_ALREADY_SUBMITTED'; end if;
+
+  if now() > t.deadline + quiz.screening_grace() then
+    -- too late: close it with whatever was last saved in time. Returned, not raised,
+    -- so the close is not rolled back.
+    perform quiz.screening_expire();
+    return json_build_object('ok', false, 'code', 'SCREENING_TIME_UP');
+  end if;
+
+  -- exactly three answers, each capped at 8000 characters
+  v := array[left(coalesce(p_answers[1], ''), 8000),
+             left(coalesce(p_answers[2], ''), 8000),
+             left(coalesce(p_answers[3], ''), 8000)];
+
+  update quiz.screening_teams
+     set answers = v, last_saved_at = now(), save_count = save_count + 1, updated_at = now(),
+         submitted_at  = case when p_final then now() else null end,
+         -- the browser submits by itself at 0:00; anything at or past the deadline is a time-up
+         submit_reason = case when not p_final then null
+                              when now() >= t.deadline then 'TIME_UP' else 'MANUAL' end
+   where email = me.email;
+  if p_final then perform quiz.audit(me.email, 'SCREENING_SUBMIT', t.team_name, null); end if;
+  return quiz.screening_payload(me.email, me.google_name);
+end $$;
+
+-- =====================================================================
+-- Admin API
+-- =====================================================================
+
+create or replace function public.admin_screening(p_token uuid)
+returns json language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token); c quiz.screening_config;
+begin
+  perform quiz.screening_expire();
+  select * into c from quiz.screening_config where id = 1;
+  return json_build_object(
+    'server_now', now(),
+    'config', json_build_object('is_open', c.is_open, 'duration_minutes', c.duration_minutes,
+                                'event_title', c.event_title, 'case_title', c.case_title,
+                                'case_facts', c.case_facts, 'rubric', c.rubric),
+    'tracks', (select json_agg(json_build_object('id', x.id, 'label', x.label, 'subtitle', x.subtitle,
+                                                 'role_brief', x.role_brief, 'prompts', x.prompts,
+                                                 'mandate', x.mandate, 'signals', x.signals)
+                               order by x.sort) from quiz.screening_tracks x),
+    'teams', coalesce((select json_agg(json_build_object(
+        'email', t.email, 'leader_name', t.leader_name, 'team_name', t.team_name,
+        'track', t.track, 'status', quiz.screening_status(t),
+        'registered_at', t.registered_at, 'started_at', t.started_at, 'deadline', t.deadline,
+        'submitted_at', t.submitted_at, 'submit_reason', t.submit_reason,
+        'last_saved_at', t.last_saved_at, 'save_count', t.save_count,
+        'reopened_count', t.reopened_count, 'answers', to_json(t.answers))
+        order by t.registered_at)
+      from quiz.screening_teams t), '[]'::json));
+end $$;
+
+create or replace function public.admin_screening_settings(p_token uuid, p_is_open boolean,
+                                                           p_duration_minutes int)
+returns void language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token);
+begin
+  if p_duration_minutes is not null and (p_duration_minutes < 1 or p_duration_minutes > 180) then
+    raise exception 'Duration must be between 1 and 180 minutes.';
+  end if;
+  update quiz.screening_config
+     set is_open = coalesce(p_is_open, is_open),
+         duration_minutes = coalesce(p_duration_minutes, duration_minutes),
+         updated_at = now()
+   where id = 1;
+  perform quiz.audit(v_admin, 'SCREENING_SETTINGS', null,
+                     json_build_object('is_open', p_is_open, 'minutes', p_duration_minutes)::jsonb);
+end $$;
+
+-- For a team that lost time to a technical problem: reopen (or extend) by N minutes.
+-- Their saved answers are kept.
+create or replace function public.admin_screening_reopen(p_token uuid, p_email text, p_minutes int)
+returns void language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token); t quiz.screening_teams;
+begin
+  if p_minutes is null or p_minutes < 1 or p_minutes > 60 then
+    raise exception 'Minutes must be between 1 and 60.';
+  end if;
+  select * into t from quiz.screening_teams where email = lower(btrim(p_email)) for update;
+  if t.email is null then raise exception 'SCREENING_NOT_REGISTERED'; end if;
+  if t.started_at is null then raise exception 'SCREENING_NOT_STARTED'; end if;
+  update quiz.screening_teams
+     set deadline = greatest(coalesce(deadline, now()), now()) + make_interval(mins => p_minutes),
+         submitted_at = null, submit_reason = null,
+         reopened_count = reopened_count + 1, updated_at = now()
+   where email = t.email;
+  perform quiz.audit(v_admin, 'SCREENING_REOPEN', t.email, json_build_object('minutes', p_minutes)::jsonb);
+end $$;
+
+-- Remove a registration entirely (e.g. a duplicate team or a test entry).
+create or replace function public.admin_screening_delete(p_token uuid, p_email text)
+returns void language plpgsql security definer set search_path = quiz, public as $$
+declare v_admin text := quiz.admin_from_token(p_token); t quiz.screening_teams;
+begin
+  delete from quiz.screening_teams where email = lower(btrim(p_email)) returning * into t;
+  if t.email is null then raise exception 'SCREENING_NOT_REGISTERED'; end if;
+  perform quiz.audit(v_admin, 'SCREENING_DELETE', t.email,
+                     json_build_object('team_name', t.team_name, 'track', t.track,
+                                       'answers', t.answers)::jsonb);
+end $$;
+
+-- ---------- permissions ----------
+revoke execute on function quiz.screening_caller(), quiz.screening_expire(),
+                           quiz.screening_payload(text, text), quiz.screening_grace(),
+                           quiz.screening_status(quiz.screening_teams) from public;
+
+grant execute on function public.screening_state()                         to anon, authenticated;
+grant execute on function public.screening_register(text, text)            to anon, authenticated;
+grant execute on function public.screening_start()                         to anon, authenticated;
+grant execute on function public.screening_save(text[], boolean)           to anon, authenticated;
+grant execute on function public.admin_screening(uuid)                     to anon, authenticated;
+grant execute on function public.admin_screening_settings(uuid, boolean, int) to anon, authenticated;
+grant execute on function public.admin_screening_reopen(uuid, text, int)   to anon, authenticated;
+grant execute on function public.admin_screening_delete(uuid, text)        to anon, authenticated;
