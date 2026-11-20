@@ -1,83 +1,75 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { rpc, store } from '../lib/api'
-import { firebaseConfigured, signInWithGoogle, firebaseSignOut } from '../lib/firebase'
 
 /**
- * PRIMUS 2026 screening round.
+ * PRIMUS 2026 screening round — the team leader's page.
  *
- *   sign in (team leader's Google account)
- *     → team name + one track (Product / Consulting / Finance)
+ *   sign in / create account (any email + password)
+ *     → complete sign-in: leader's name + mobile, team name, one track
  *     → Start: the case and the track's three prompts appear, server-side timer runs
  *     → answers autosave; Submit, or the clock closes it at 0:00
  *
- * Every rule (one team per email, unique team names, the track lock after Start,
- * the deadline) is enforced by the database; this page only shows the state it returns.
+ * Every rule (one team per account, unique team names and phone numbers, the track lock
+ * after Start, the deadline) is enforced by the database; this page shows what it returns.
  */
+const SESSION_KEY = 'primus-leader'
+
 export default function Screening() {
+  const [session, setSession] = useState(() => store.get(SESSION_KEY))   // { token, email }
   const [data, setData] = useState(null)        // screening_state() payload
-  const [phase, setPhase] = useState('loading') // loading | signin | app
-  const [editing, setEditing] = useState(false) // changing team name / track before Start
+  const [editing, setEditing] = useState(false) // changing details before Start
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
   const offset = useRef(0)
+  const token = session?.token
 
   const accept = useCallback(d => {
     offset.current = new Date(d.server_now) - Date.now()
-    setData(d); setPhase('app'); setError('')
+    setData(d); setError('')
+  }, [])
+
+  const signOut = useCallback(async (callServer = true) => {
+    const t = store.get(SESSION_KEY)?.token
+    store.del(SESSION_KEY)
+    setSession(null); setData(null); setEditing(false)
+    if (callServer && t) { try { await rpc('screening_logout', { p_token: t }) } catch { /* ignore */ } }
   }, [])
 
   const load = useCallback(async () => {
-    try { accept(await rpc('screening_state')) }
+    if (!token) return
+    try { accept(await rpc('screening_state', { p_token: token })) }
     catch (e) {
-      if (e.code === 'NOT_SIGNED_IN' || e.code === 'EMAIL_NOT_VERIFIED') { setPhase('signin'); setData(null) }
-      else { setError(e.message); setPhase(p => (p === 'loading' ? 'signin' : p)) }
+      if (e.code === 'SESSION_INVALID') { signOut(false); setError(e.message) }
+      else setError(e.message)
     }
-  }, [accept])
+  }, [token, accept, signOut])
 
-  useEffect(() => {
-    if (!firebaseConfigured) { setPhase('signin'); return }
-    load()
-  }, [load])
+  useEffect(() => { load() }, [load])
 
-  async function google() {
-    setError(''); setBusy(true)
-    try { await signInWithGoogle(); await load() }
-    catch (err) {
-      await firebaseSignOut()
-      const m = err?.message || ''
-      setError(m.includes('popup-closed') || m.includes('cancelled') ? '' : (m || 'Google sign-in failed.'))
-    } finally { setBusy(false) }
+  function signedIn(s) {
+    store.set(SESSION_KEY, { token: s.token, email: s.email })
+    setSession({ token: s.token, email: s.email })
   }
 
-  async function signOut() {
-    await firebaseSignOut()
-    setData(null); setEditing(false); setPhase('signin')
-  }
-
-  const team = data?.team
-  const cfg = data?.config
-
-  if (phase === 'loading') return <div className="center-page"><p className="muted">Loading…</p></div>
-
-  if (phase === 'signin') return (
+  if (!token) return (
     <ScreeningShell>
-      <div className="card">
-        <div className="brand-mark">PRIMUS 2026</div>
-        <h1>Screening round</h1>
-        <p className="muted">Team leaders only. Sign in with the Google account you want this team’s
-          response linked to — one response per team.</p>
-        {firebaseConfigured ? (
-          <button type="button" onClick={google} disabled={busy} className="sc-google">
-            {busy ? 'Signing in…' : 'Continue with Google'}
-          </button>
-        ) : <div className="error">Google sign-in isn’t set up on this site yet.</div>}
-        {error && <div className="error">{error}</div>}
-      </div>
+      <AuthCard onSignedIn={signedIn} notice={error} />
     </ScreeningShell>
   )
 
+  if (!data) return (
+    <div className="center-page">
+      {error ? <div className="card narrow"><div className="error">{error}</div>
+        <button onClick={load}>Try again</button>{' '}
+        <button className="ghost" onClick={() => signOut()}>Sign out</button></div>
+        : <p className="muted">Loading…</p>}
+    </div>
+  )
+
+  const team = data.team
+  const cfg = data.config
+
   if (team?.status === 'writing') return (
-    <Writing data={data} offset={offset} onState={accept} onReload={load} />
+    <Writing token={token} data={data} offset={offset} onState={accept} onReload={load} />
   )
 
   if (team?.status === 'submitted') return (
@@ -86,19 +78,20 @@ export default function Screening() {
     </ScreeningShell>
   )
 
-  // not registered yet, or registered and waiting to start
+  // signed in: complete the details, or wait to start
   return (
     <ScreeningShell cfg={cfg}>
       {!team || editing
-        ? <RegisterForm data={data} onSaved={d => { accept(d); setEditing(false) }}
-                        onCancel={team ? () => setEditing(false) : null} onSignOut={signOut} />
-        : <ReadyCard data={data} onEdit={() => setEditing(true)} onStarted={accept} onSignOut={signOut} />}
+        ? <DetailsForm token={token} data={data} onSaved={d => { accept(d); setEditing(false) }}
+                       onCancel={team ? () => setEditing(false) : null} onSignOut={signOut} />
+        : <ReadyCard token={token} data={data} onEdit={() => setEditing(true)} onStarted={accept}
+                     onSignOut={signOut} />}
       {error && <div className="error">{error}</div>}
     </ScreeningShell>
   )
 }
 
-/** Rules on the left, the action on the right — same layout as the quiz sign-in pages. */
+/** Rules on the left, the action on the right. */
 function ScreeningShell({ cfg, children }) {
   const mins = cfg?.duration_minutes ?? 15
   return (
@@ -108,15 +101,16 @@ function ScreeningShell({ cfg, children }) {
         <h1>{cfg?.case_title || 'Case File 07: The Ghost Customer'}</h1>
         <p className="muted">A {mins}-minute written case sprint. Read this before you start.</p>
         <ul className="rules">
-          <li><b>Only the team leader signs in</b>, with a Google account. Each account can submit
-            {' '}<b>one response for one team</b>.</li>
-          <li>Enter your <b>team name</b> and choose <b>one track</b>:
+          <li><b>Only the team leader signs in</b>, with any email address and a password.
+            Each account submits <b>one response for one team</b>.</li>
+          <li>To complete sign-in, enter the <b>team leader’s full name</b> and <b>mobile number</b>,
+            your <b>team name</b>, and choose <b>one track</b>:
             <ul className="sub-rules">
               <li><b>Product</b> — product &amp; commercial offering strategy</li>
               <li><b>Consulting</b> — strategy, operations &amp; crisis governance</li>
               <li><b>Finance</b> — corporate finance &amp; valuation</li>
             </ul>
-            You can change both until you press Start. After that the track is locked.</li>
+            You can change these until you press Start. After that they are locked.</li>
           <li>Every track works on the same case. The case file and your track’s
             {' '}<b>three prompts</b> appear only when you press <b>Start</b>.</li>
           <li><b>Your {mins}-minute timer starts the moment you press Start</b> and does not pause —
@@ -132,18 +126,83 @@ function ScreeningShell({ cfg, children }) {
   )
 }
 
+function AuthCard({ onSignedIn, notice }) {
+  const [mode, setMode] = useState('signup')     // signup | login
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [show, setShow] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const signup = mode === 'signup'
+
+  async function submit(e) {
+    e.preventDefault()
+    setError('')
+    if (signup && password !== confirm) { setError('The two passwords do not match.'); return }
+    setBusy(true)
+    try {
+      onSignedIn(await rpc(signup ? 'screening_signup' : 'screening_login',
+                           { p_email: email.trim(), p_password: password }))
+    } catch (err) {
+      setError(err.message)
+      if (err.code === 'EMAIL_ALREADY_REGISTERED') setMode('login')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <form className="card" onSubmit={submit}>
+      <div className="brand-mark">PRIMUS 2026</div>
+      <h1>{signup ? 'Create your account' : 'Sign in'}</h1>
+      <p className="muted">Team leaders only. Use any email address you can be reached on.</p>
+      <div className="sc-modes" role="tablist">
+        <button type="button" role="tab" aria-selected={signup} className={signup ? 'active' : ''}
+                onClick={() => { setMode('signup'); setError('') }}>New team leader</button>
+        <button type="button" role="tab" aria-selected={!signup} className={!signup ? 'active' : ''}
+                onClick={() => { setMode('login'); setError('') }}>I have an account</button>
+      </div>
+      {notice && !error && <div className="error">{notice}</div>}
+
+      <label htmlFor="em">Email</label>
+      <input id="em" type="email" value={email} onChange={e => setEmail(e.target.value)}
+             autoComplete="email" maxLength={254} required autoFocus />
+      <label htmlFor="pw">Password</label>
+      <input id="pw" type={show ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+             autoComplete={signup ? 'new-password' : 'current-password'} minLength={signup ? 8 : 1} maxLength={72} required />
+      {signup && <>
+        <label htmlFor="pw2">Confirm password</label>
+        <input id="pw2" type={show ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)}
+               autoComplete="new-password" minLength={8} maxLength={72} required />
+      </>}
+      <label className="sc-check">
+        <input type="checkbox" checked={show} onChange={e => setShow(e.target.checked)} /> Show password
+      </label>
+      {signup && <p className="small muted" style={{ margin: '6px 0 0' }}>At least 8 characters. Remember it — you’ll need it if you sign in again.</p>}
+
+      {error && <div className="error">{error}</div>}
+      <button className="lg" style={{ width: '100%', marginTop: 14 }} disabled={busy}>
+        {busy ? 'Please wait…' : signup ? 'Create account' : 'Sign in'}
+      </button>
+      {!signup && <p className="small muted" style={{ marginTop: 12 }}>Forgot your password? Ask an organiser to reset it.</p>}
+    </form>
+  )
+}
+
 function SignedInAs({ data, onSignOut }) {
   return (
     <p className="small muted" style={{ marginTop: 14 }}>
       Signed in as <b>{data.email}</b>.{' '}
-      <button type="button" className="ghost sm" onClick={onSignOut}>Use a different account</button>
+      <button type="button" className="ghost sm" onClick={() => onSignOut()}>Sign out</button>
     </p>
   )
 }
 
-function RegisterForm({ data, onSaved, onCancel, onSignOut }) {
-  const [name, setName] = useState(data.team?.team_name || '')
-  const [track, setTrack] = useState(data.team?.track || '')
+function DetailsForm({ token, data, onSaved, onCancel, onSignOut }) {
+  const t = data.team
+  const [leader, setLeader] = useState(t?.leader_name || '')
+  const [phone, setPhone] = useState(t?.leader_phone || '')
+  const [name, setName] = useState(t?.team_name || '')
+  const [track, setTrack] = useState(t?.track || '')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const closed = !data.config.is_open
@@ -152,28 +211,36 @@ function RegisterForm({ data, onSaved, onCancel, onSignOut }) {
     e.preventDefault()
     if (!track) { setError('Choose a track.'); return }
     setError(''); setBusy(true)
-    try { onSaved(await rpc('screening_register', { p_team_name: name, p_track: track })) }
-    catch (err) { setError(err.message) }
+    try {
+      onSaved(await rpc('screening_register', { p_token: token, p_leader_name: leader, p_phone: phone,
+                                                p_team_name: name, p_track: track }))
+    } catch (err) { setError(err.message) }
     finally { setBusy(false) }
   }
 
   return (
     <form className="card" onSubmit={submit}>
-      <div className="brand-mark">Step 1 of 2</div>
-      <h1>{data.team ? 'Edit your team' : 'Register your team'}</h1>
+      <div className="brand-mark">{t ? 'Edit details' : 'Complete sign-in'}</div>
+      <h1>{t ? 'Edit your team' : 'Team leader & team'}</h1>
       {closed && <div className="error">Registration for the screening round is closed.</div>}
 
+      <label htmlFor="ln">Team leader’s full name</label>
+      <input id="ln" value={leader} onChange={e => setLeader(e.target.value)} maxLength={80}
+             autoComplete="name" required disabled={closed} autoFocus />
+      <label htmlFor="ph">Team leader’s mobile number</label>
+      <input id="ph" type="tel" inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)}
+             maxLength={16} placeholder="10-digit mobile number" autoComplete="tel" required disabled={closed} />
       <label htmlFor="team">Team name</label>
       <input id="team" value={name} onChange={e => setName(e.target.value)} maxLength={60}
-             placeholder="e.g. The Analysts" autoFocus required disabled={closed} />
+             placeholder="e.g. The Analysts" required disabled={closed} />
 
       <label>Track</label>
       <div className="sc-tracks" role="radiogroup">
-        {(data.tracks || []).map(t => (
-          <label key={t.id} className={`sc-track ${track === t.id ? 'selected' : ''}`}>
-            <input type="radio" name="track" value={t.id} checked={track === t.id}
-                   onChange={() => setTrack(t.id)} disabled={closed} />
-            <span><b>{t.label}</b><span className="small muted">{t.subtitle}</span></span>
+        {(data.tracks || []).map(x => (
+          <label key={x.id} className={`sc-track ${track === x.id ? 'selected' : ''}`}>
+            <input type="radio" name="track" value={x.id} checked={track === x.id}
+                   onChange={() => setTrack(x.id)} disabled={closed} />
+            <span><b>{x.label}</b><span className="small muted">{x.subtitle}</span></span>
           </label>
         ))}
       </div>
@@ -181,7 +248,7 @@ function RegisterForm({ data, onSaved, onCancel, onSignOut }) {
       {error && <div className="error">{error}</div>}
       <div className="row" style={{ marginTop: 16 }}>
         <button className="lg" style={{ flex: 1 }} disabled={busy || closed}>
-          {busy ? 'Saving…' : data.team ? 'Save changes' : 'Register team'}
+          {busy ? 'Saving…' : t ? 'Save changes' : 'Complete sign-in'}
         </button>
         {onCancel && <button type="button" className="ghost lg" onClick={onCancel}>Cancel</button>}
       </div>
@@ -190,40 +257,41 @@ function RegisterForm({ data, onSaved, onCancel, onSignOut }) {
   )
 }
 
-function ReadyCard({ data, onEdit, onStarted, onSignOut }) {
+function ReadyCard({ token, data, onEdit, onStarted, onSignOut }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const t = data.team
   const mins = data.config.duration_minutes
 
   async function start() {
-    if (!window.confirm(`Start now? Your ${mins}-minute timer begins immediately and cannot be paused. Your track (${t.track_label}) will be locked.`)) return
+    if (!window.confirm(`Start now? Your ${mins}-minute timer begins immediately and cannot be paused. Your details and track (${t.track_label}) will be locked.`)) return
     setBusy(true); setError('')
-    try { onStarted(await rpc('screening_start')) }
+    try { onStarted(await rpc('screening_start', { p_token: token })) }
     catch (err) { setError(err.message) }
     finally { setBusy(false) }
   }
 
   return (
     <div className="card">
-      <div className="brand-mark">Step 2 of 2</div>
+      <div className="brand-mark">Ready</div>
       <h1>Ready when you are</h1>
       <dl className="details">
         <dt>Team</dt><dd>{t.team_name}</dd>
         <dt>Track</dt><dd>{t.track_label}</dd>
-        <dt>Team leader</dt><dd>{t.leader_name || data.google_name || data.email}</dd>
+        <dt>Team leader</dt><dd>{t.leader_name}</dd>
+        <dt>Mobile</dt><dd>{t.leader_phone}</dd>
         <dt>Time</dt><dd>{mins} minutes, 3 prompts</dd>
       </dl>
       {data.config.is_open
         ? <div className="status-box ok">You’re registered. Press Start when your team is together and ready.</div>
-        : <div className="status-box wait">The screening round is not open right now. This page will let you start once the organisers open it — refresh to check.</div>}
+        : <div className="status-box wait">The screening round is not open right now. Refresh this page once the organisers open it.</div>}
       {error && <div className="error">{error}</div>}
       <button className="lg" style={{ width: '100%', marginTop: 14 }} onClick={start}
               disabled={busy || !data.config.is_open}>
         {busy ? 'Starting…' : `Start the ${mins}-minute sprint`}
       </button>
       <button type="button" className="ghost" style={{ width: '100%', marginTop: 8 }} onClick={onEdit}>
-        Change team name or track
+        Change details or track
       </button>
       <SignedInAs data={data} onSignOut={onSignOut} />
     </div>
@@ -236,7 +304,7 @@ const fmtClock = ms => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-function Writing({ data, offset, onState, onReload }) {
+function Writing({ token, data, offset, onState, onReload }) {
   const draftKey = `screening-draft:${data.email}`
   // A draft typed after the last successful save (the network dropped, the tab crashed)
   // wins over the server copy, and is pushed on the first autosave.
@@ -266,14 +334,14 @@ function Writing({ data, offset, onState, onReload }) {
     dirty.current = false
     setSaveState({ kind: 'saving', text: 'Saving…' })
     try {
-      await rpc('screening_save', { p_answers: latest.current, p_final: false })
+      await rpc('screening_save', { p_token: token, p_answers: latest.current, p_final: false })
       setSaveState({ kind: 'idle', text: `Saved ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` })
     } catch (e) {
-      if (e.code?.startsWith('SCREENING_')) { finishing.current = true; onReload(); return }
+      if (e.code?.startsWith('SCREENING_') || e.code === 'SESSION_INVALID') { finishing.current = true; onReload(); return }
       dirty.current = true
       setSaveState({ kind: 'offline', text: 'Not saved — retrying…' })
     } finally { saving.current = false }
-  }, [onReload])
+  }, [token, onReload])
 
   const submit = useCallback(async (auto) => {
     if (finishing.current) return
@@ -281,17 +349,17 @@ function Writing({ data, offset, onState, onReload }) {
     finishing.current = true
     setSubmitting(true); setError('')
     try {
-      const d = await rpc('screening_save', { p_answers: latest.current, p_final: true })
+      const d = await rpc('screening_save', { p_token: token, p_answers: latest.current, p_final: true })
       store.del(draftKey)
       onState(d)
     } catch (e) {
-      if (e.code?.startsWith('SCREENING_')) { store.del(draftKey); onReload(); return }
+      if (e.code?.startsWith('SCREENING_') || e.code === 'SESSION_INVALID') { if (e.code !== 'SESSION_INVALID') store.del(draftKey); onReload(); return }
       setSubmitting(false)
       setError(`${e.message} Your answers are kept on this device — press Submit again.`)
       // the clock retries an automatic submit by itself; give the network a moment first
       setTimeout(() => { finishing.current = false }, auto ? 3000 : 0)
     }
-  }, [draftKey, onState, onReload])
+  }, [token, draftKey, onState, onReload])
 
   // autosave every 3 seconds while there are unsaved changes
   useEffect(() => {
@@ -384,7 +452,8 @@ function Done({ data, onSignOut }) {
       <dl className="details">
         <dt>Track</dt><dd>{t.track_label}</dd>
         <dt>Submitted</dt><dd>{new Date(t.submitted_at).toLocaleString()}</dd>
-        <dt>Team leader</dt><dd>{data.email}</dd>
+        <dt>Team leader</dt><dd>{t.leader_name}</dd>
+        <dt>Email</dt><dd>{data.email}</dd>
       </dl>
       <p className="muted small">Results will be shared by the organisers. You can close this page.</p>
       {c && (

@@ -1,14 +1,10 @@
 -- =====================================================================
--- PRIMUS 2026 screening round — STANDALONE INSTALL (base)
+-- PRIMUS 2026 screening portal — 01: base
 --
--- For a database that does NOT have the LEAD quiz (e.g. the PRIMUS event
--- project). Creates only what the screening round needs: the private quiz
--- schema, admin logins + sessions, sign-in throttling and the audit log.
--- Run this, then 34_screening_round.sql (SCREENING_STANDALONE.sql = both).
---
--- Every definition here is identical to the full quiz setup (01, 03, 28),
--- so running it on the full quiz database changes nothing. Safe to re-run.
--- Admin accounts are created by you afterwards — see the end of this file.
+-- The private quiz schema, admin logins, sessions (admins and team
+-- leaders), sign-in throttling and the audit log. Nothing here is readable
+-- from the browser; it is reached only through the functions in 02.
+-- Safe to re-run. Admin accounts are created separately (see the end).
 -- =====================================================================
 
 create extension if not exists pgcrypto with schema extensions;
@@ -32,6 +28,9 @@ create table if not exists quiz.sessions (
 );
 create index if not exists sessions_subject_idx on quiz.sessions (kind, subject);
 alter table quiz.sessions add column if not exists device text;
+-- 'leader' = a team leader's sign-in (the other kinds come from the LEAD quiz this grew out of)
+alter table quiz.sessions drop constraint if exists sessions_kind_check;
+alter table quiz.sessions add constraint sessions_kind_check check (kind in ('student', 'admin', 'leader'));
 
 create table if not exists quiz.login_failures (
   id        bigserial primary key,

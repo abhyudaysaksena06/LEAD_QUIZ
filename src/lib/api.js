@@ -1,25 +1,28 @@
 import { createClient } from '@supabase/supabase-js'
-import { firebaseConfigured, firebaseIdToken } from './firebase'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export const configured = Boolean(url && key)
 
-// With Firebase present, every request carries the Firebase ID token so Postgres can
-// read the verified email. Returning null falls back to the anon key.
-export const supabase = configured
-  ? createClient(url, key, firebaseConfigured
-      ? { accessToken: async () => (await firebaseIdToken()) ?? null }
-      : { auth: { persistSession: false } })
-  : null
+// The anon key only: every call goes to a Postgres function, and team leaders and admins
+// prove who they are with the session token those functions issue.
+export const supabase = configured ? createClient(url, key, { auth: { persistSession: false } }) : null
 
 const FRIENDLY = {
   INVALID_CREDENTIALS: 'Incorrect username or password.',
   ADMIN_SESSION_INVALID: 'Admin session expired. Please sign in again.',
   TOO_MANY_ATTEMPTS: 'Too many failed sign-in attempts. Wait 10 minutes and try again.',
-  NOT_SIGNED_IN: 'Google sign-in did not complete. Please try again.',
-  EMAIL_NOT_VERIFIED: 'This Google account has no verified email address.',
+  SESSION_INVALID: 'You have been signed out. Please sign in again.',
+  EMAIL_INVALID: 'Enter a valid email address.',
+  PASSWORD_WEAK: 'Use a password of at least 8 characters.',
+  EMAIL_ALREADY_REGISTERED: 'An account with this email already exists. Sign in instead.',
+  INVALID_LOGIN: 'Incorrect email or password.',
+  TOO_MANY_SIGNUPS: 'Too many new accounts from this network. Try again in a while.',
+  LEADER_NAME_INVALID: 'Enter the team leader’s full name (letters only).',
+  PHONE_INVALID: 'Enter a valid 10-digit Indian mobile number.',
+  PHONE_TAKEN: 'This mobile number is already registered for another team.',
+  ACCOUNT_NOT_FOUND: 'No account with that email.',
   SCREENING_CLOSED: 'The screening round is not open right now.',
   SCREENING_NOT_REGISTERED: 'Register your team first.',
   SCREENING_NOT_STARTED: 'Press Start first.',

@@ -49,7 +49,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
     return teams.filter(x =>
       (track === 'all' || x.track === track) &&
       (status === 'all' || x.status === status) &&
-      (!t || [x.team_name, x.leader_name, x.email].some(v => (v || '').toLowerCase().includes(t))))
+      (!t || [x.team_name, x.leader_name, x.email, x.leader_phone].some(v => (v || '').toLowerCase().includes(t))))
   }, [teams, q, track, status])
 
   async function act(fn, args) {
@@ -73,14 +73,21 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
     act('admin_screening_reopen', { p_email: team.email, p_minutes: n })
   }
 
-  function remove(team) {
-    if (!window.confirm(`Delete "${team.team_name}" (${team.email}) and its response? This cannot be undone. A copy is kept in the audit log.`)) return
+  function remove(email, label) {
+    if (!window.confirm(`Delete ${label} (${email}) completely — account, team and response? This cannot be undone. A copy is kept in the audit log.`)) return
     setOpen(null)
-    act('admin_screening_delete', { p_email: team.email })
+    act('admin_screening_delete', { p_email: email })
+  }
+
+  function setPassword(email) {
+    const pw = window.prompt(`New password for ${email} (at least 8 characters). Tell the team leader; they will be signed out everywhere.`)
+    if (pw == null) return
+    if (pw.length < 8) { setErr('The password must be at least 8 characters.'); return }
+    act('admin_screening_set_password', { p_email: email, p_password: pw })
   }
 
   function exportCsv() {
-    const header = ['team_name', 'leader_name', 'leader_email', 'track', 'status', 'how_submitted',
+    const header = ['team_name', 'leader_name', 'leader_phone', 'leader_email', 'track', 'status', 'how_submitted',
                     'registered_at', 'started_at', 'submitted_at',
                     'q1_prompt', 'q1_answer', 'q1_words', 'q2_prompt', 'q2_answer', 'q2_words',
                     'q3_prompt', 'q3_answer', 'q3_words', 'times_reopened']
@@ -89,7 +96,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
       const tr = trackById[x.track] || {}
       const a = x.answers || []
       const p = tr.prompts || []
-      return [x.team_name, x.leader_name, x.email, tr.label || x.track, STATUS[x.status]?.label || x.status,
+      return [x.team_name, x.leader_name, x.leader_phone, x.email, tr.label || x.track, STATUS[x.status]?.label || x.status,
               x.submit_reason === 'TIME_UP' ? 'time ran out' : x.submit_reason === 'MANUAL' ? 'submitted by team' : '',
               when(x.registered_at), when(x.started_at), when(x.submitted_at),
               p[0]?.title, a[0], words(a[0]), p[1]?.title, a[1], words(a[1]), p[2]?.title, a[2], words(a[2]),
@@ -110,11 +117,14 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
   const count = (k, v) => teams.filter(x => x[k] === v).length
   const cfg = data.config
   const viewing = open && teams.find(x => x.email === open)
+  const incomplete = data.incomplete || []
 
   return (
     <>
       <div className="stats">
         <div className="stat"><b>{teams.length}</b><span>Teams</span></div>
+        <div className="stat" title="Created an account but have not entered their name, phone and team yet">
+          <b style={{ color: incomplete.length ? 'var(--warn)' : undefined }}>{incomplete.length}</b><span>Sign-in not completed</span></div>
         {tracks.map(t => <div key={t.id} className="stat"><b>{count('track', t.id)}</b><span>{t.label}</span></div>)}
         <div className="stat"><b style={{ color: 'var(--brand)' }}>{count('status', 'writing')}</b><span>Writing now</span></div>
         <div className="stat"><b style={{ color: 'var(--ok)' }}>{count('status', 'submitted')}</b><span>Submitted</span></div>
@@ -168,7 +178,7 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
               return (
                 <tr key={x.email}>
                   <td><b>{x.team_name}</b></td>
-                  <td>{x.leader_name || '—'}<div className="small muted">{x.email}</div></td>
+                  <td>{x.leader_name || '—'}<div className="small muted">{x.leader_phone} · {x.email}</div></td>
                   <td>{trackById[x.track]?.label || x.track}</td>
                   <td>
                     <span className={`badge ${STATUS[x.status]?.cls}`}>{STATUS[x.status]?.label}</span>
@@ -189,15 +199,33 @@ export default function ScreeningResponses({ token, onSessionInvalid }) {
         </table>
       </div>
 
+      {incomplete.length > 0 && (
+        <details className="section" style={{ marginTop: 14 }}>
+          <summary style={{ cursor: 'pointer' }}><b>{incomplete.length}</b> account(s) signed up but have not completed sign-in</summary>
+          <table style={{ marginTop: 8 }}>
+            <thead><tr><th>Email</th><th>Signed up</th><th></th></tr></thead>
+            <tbody>{incomplete.map(a => (
+              <tr key={a.email}><td>{a.email}</td><td>{when(a.created_at)}</td>
+                <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                  <button className="sm ghost" disabled={busy} onClick={() => setPassword(a.email)}>Set password…</button>{' '}
+                  <button className="sm danger" disabled={busy} onClick={() => remove(a.email, 'this account')}>Delete</button>
+                </td></tr>))}
+            </tbody>
+          </table>
+        </details>
+      )}
+
       {viewing && (
         <TeamDrawer team={viewing} track={trackById[viewing.track]} rubric={cfg.rubric} busy={busy}
-                    onClose={() => setOpen(null)} onReopen={() => reopen(viewing)} onDelete={() => remove(viewing)} />
+                    onClose={() => setOpen(null)} onReopen={() => reopen(viewing)}
+                    onPassword={() => setPassword(viewing.email)}
+                    onDelete={() => remove(viewing.email, `"${viewing.team_name}"`)} />
       )}
     </>
   )
 }
 
-function TeamDrawer({ team, track, rubric, busy, onClose, onReopen, onDelete }) {
+function TeamDrawer({ team, track, rubric, busy, onClose, onReopen, onPassword, onDelete }) {
   useEffect(() => {
     const k = e => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', k)
@@ -216,6 +244,7 @@ function TeamDrawer({ team, track, rubric, busy, onClose, onReopen, onDelete }) 
           <span className="spacer" />
           {team.started_at && <button className="sm ghost" disabled={busy} onClick={onReopen}>
             {team.status === 'submitted' ? 'Reopen…' : 'Add time…'}</button>}
+          <button className="sm ghost" disabled={busy} onClick={onPassword}>Set password…</button>
           <button className="sm danger" disabled={busy} onClick={onDelete}>Delete</button>
           <button className="sm" onClick={onClose}>Close</button>
         </div>
@@ -224,6 +253,7 @@ function TeamDrawer({ team, track, rubric, busy, onClose, onReopen, onDelete }) 
             <div className="section">
               <dl className="kv">
                 <dt>Leader</dt><dd>{team.leader_name || '—'}</dd>
+                <dt>Mobile</dt><dd>{team.leader_phone ? <a href={`tel:+91${team.leader_phone}`}>{team.leader_phone}</a> : '—'}</dd>
                 <dt>Email</dt><dd>{team.email}</dd>
                 <dt>Registered</dt><dd>{when(team.registered_at) || '—'}</dd>
                 <dt>Started</dt><dd>{when(team.started_at) || 'not yet'}</dd>

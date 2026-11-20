@@ -4,6 +4,7 @@
 select
   t.team_name,
   t.leader_name,
+  t.leader_phone,
   t.email                                                        as leader_email,
   tr.label                                                       as track,
   case when t.submitted_at is not null then 'submitted'

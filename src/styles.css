@@ -281,8 +281,6 @@ td.mono { font-family: var(--mono); }
 }
 
 /* ---------- PRIMUS screening round ---------- */
-.sc-google { width: 100%; padding: 12px 16px; font-size: 15px; background: #fff; color: var(--ink); border-color: var(--line); }
-.sc-google:hover:not(:disabled) { background: var(--brand-soft); }
 .sc-tracks { display: grid; gap: 8px; }
 .sc-track { display: flex; gap: 10px; align-items: flex-start; margin: 0; font-weight: 400; cursor: pointer;
   border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px; background: #fff; }
@@ -309,3 +307,9 @@ td.mono { font-family: var(--mono); }
   .sc-case { position: static; max-height: none; }
   .sc-team { display: none; }
 }
+.sc-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: #eef1f4; padding: 4px; border-radius: 8px; margin: 4px 0 6px; }
+.sc-modes button { background: transparent; color: var(--muted); border: 0; padding: 7px 8px; }
+.sc-modes button:hover:not(:disabled) { background: #fff; }
+.sc-modes button.active { background: #fff; color: var(--brand); box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+.sc-check { display: flex; gap: 8px; align-items: center; font-weight: 400; margin-top: 10px; }
+.sc-check input { width: auto; margin: 0; accent-color: var(--brand); }
