@@ -4,6 +4,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 
 export const MODEL = 'claude-opus-5-5'
+export const EFFORT = 'high'
+// models an admin may pick for a side-by-side comparison (never saved)
+export const COMPARE_MODELS = ['claude-opus-5-5', 'claude-haiku-5-5']
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
 // The judge's verdict. Structured outputs guarantee this shape; the database still
 // clamps every score to the rubric maximum and computes the total itself.
@@ -115,21 +119,23 @@ export class JudgeError extends Error {
 }
 
 /** One judgement. Returns { verdict, usage, model }. */
-export async function judge(input, { apiKey, client } = {}) {
+export async function judge(input, { apiKey, client, model = MODEL, effort = EFFORT } = {}) {
   const anthropic = client || new Anthropic({ apiKey, maxRetries: 3, timeout: 240_000 })
+  const params = {
+    model,
+    max_tokens: 16000,
+    // grading needs care: high effort by default (Opus 5.5 would otherwise use medium)
+    output_config: { effort, format: { type: 'json_schema', schema: VERDICT_SCHEMA } },
+    system: systemPrompt(input),
+    messages: [{ role: 'user', content: userPrompt(input) }],
+  }
   let response
   try {
-    response = await anthropic.beta.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      // grading needs care: high effort (Opus 5.5 would otherwise default to medium)
-      output_config: { effort: 'high', format: { type: 'json_schema', schema: VERDICT_SCHEMA } },
+    response = model === 'claude-opus-5-5'
       // if a request is ever declined by a safety classifier, re-run it on Anthropic's recommended fallback model
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      system: systemPrompt(input),
-      messages: [{ role: 'user', content: userPrompt(input) }],
-    })
+      ? await anthropic.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
+      // Claude Haiku 5.5 has no server-side fallback
+      : await anthropic.messages.create(params)
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) throw new JudgeError('JUDGE_KEY_INVALID', 'The Anthropic API key was rejected. Check ANTHROPIC_API_KEY in Vercel.', 503)
     if (e instanceof Anthropic.PermissionDeniedError) throw new JudgeError('JUDGE_KEY_INVALID', 'The Anthropic API key cannot use this model.', 503)

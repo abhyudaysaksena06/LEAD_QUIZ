@@ -5,7 +5,7 @@
 // passed to the database for every step, so only a signed-in admin can trigger a judgement
 // and the database decides what the judge may read.
 import { createClient } from '@supabase/supabase-js'
-import { judge, JudgeError } from './_judge.js'
+import { judge, JudgeError, COMPARE_MODELS, EFFORTS } from './_judge.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -39,6 +39,11 @@ export default async function handler(req, res) {
   const token = String(body.token || '')
   const email = String(body.email || '').trim().toLowerCase()
   if (!UUID.test(token) || !email || email.length > 254) return fail(res, 400, 'BAD_REQUEST', 'token and email are required.')
+  // comparison mode: grade with another model / effort and return the result WITHOUT saving it
+  const compare = body.compare === true
+  if (compare && (!COMPARE_MODELS.includes(body.model) || !EFFORTS.includes(body.effort))) {
+    return fail(res, 400, 'BAD_REQUEST', `compare needs model (${COMPARE_MODELS.join(', ')}) and effort (${EFFORTS.join(', ')}).`)
+  }
 
   const db = createClient(url, anon, { auth: { persistSession: false } })
   try {
@@ -48,7 +53,21 @@ export default async function handler(req, res) {
       return fail(res, 500, 'DB_ERROR', 'The database returned no response to judge.')
     }
     // 2. grade it
-    const { verdict, model, usage } = await judge(input, { apiKey })
+    const started = Date.now()
+    const { verdict, model, usage } = compare
+      ? await judge(input, { apiKey, model: body.model, effort: body.effort })
+      : await judge(input, { apiKey })
+    if (compare) {
+      // scores clamped to the rubric exactly as the database does, total added up here; nothing stored
+      const scores = Object.fromEntries(input.rubric.map(r => {
+        const v = Math.round(Number(verdict?.scores?.[r.key]?.score))
+        return [r.key, Number.isFinite(v) ? Math.max(0, Math.min(r.max, v)) : null]
+      }))
+      const total = Object.values(scores).every(v => v !== null) ? Object.values(scores).reduce((a, b) => a + b, 0) : null
+      return res.status(200).json({ ok: true, compare: true, model, effort: body.effort, ms: Date.now() - started,
+                                    usage, track: input.track, scores, total, recommendation: verdict?.recommendation,
+                                    flags: verdict?.integrity_flags || [] })
+    }
     // 3. store it (rejected if the answers changed while grading)
     const saved = await rpc(db, 'admin_screening_save_judgement', {
       p_token: token, p_email: email, p_result: verdict,
